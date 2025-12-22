@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Flask
+instance/
+.webassets-cache
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
+
+# ESP32 Build files
+*.elf
+*.bin
+*.map
+
+# Large binary files
+*.icns
+desk_icon.icns
+
+# Backup files
+*_backup.py
+web_app_backup.py
+
+# Temporary files
+*.tmp
+*.temp
+
