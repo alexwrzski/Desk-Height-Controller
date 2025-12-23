@@ -55,6 +55,7 @@ web_app_backup.py
 *.app/
 build/
 DerivedData/
+release/
 
 # Xcode
 *.xcuserstate
