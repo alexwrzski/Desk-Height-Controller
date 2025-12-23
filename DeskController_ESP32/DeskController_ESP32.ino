@@ -185,47 +185,47 @@ void loop() {
     }
   } else {
     // Normal mode: Only process if WiFi is connected
-    if (WiFi.status() != WL_CONNECTED) {
-      // LED off when disconnected
-      digitalWrite(STATUS_LED, LOW);
-      
+  if (WiFi.status() != WL_CONNECTED) {
+    // LED off when disconnected
+    digitalWrite(STATUS_LED, LOW);
+    
       // Try to reconnect using saved credentials
-      static unsigned long lastReconnectAttempt = 0;
-      if (millis() - lastReconnectAttempt > 10000) {  // Try every 10 seconds
-        lastReconnectAttempt = millis();
-        Serial.println("WiFi disconnected. Attempting to reconnect...");
+    static unsigned long lastReconnectAttempt = 0;
+    if (millis() - lastReconnectAttempt > 10000) {  // Try every 10 seconds
+      lastReconnectAttempt = millis();
+      Serial.println("WiFi disconnected. Attempting to reconnect...");
         if (saved_ssid.length() > 0) {
-          WiFi.disconnect();
-          delay(100);
+      WiFi.disconnect();
+      delay(100);
           connectToWiFi(saved_ssid, saved_password);
         }
-        server_started = false;  // Reset server flag
-      }
-      
-      // Fast blink while trying to reconnect
-      static unsigned long lastBlink = 0;
-      if (millis() - lastBlink > 200) {
-        lastBlink = millis();
-        digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
-      }
-      
-      delay(100);
-      return;
+      server_started = false;  // Reset server flag
     }
     
-    // If WiFi is connected but server hasn't started, start it now
-    if (WiFi.status() == WL_CONNECTED && !server_started) {
-      Serial.println("WiFi connected! Starting HTTP server...");
-      server.begin();
-      server_started = true;
-      Serial.println("✓ HTTP server started on port 80");
-      Serial.println("✓ Ready to receive commands!");
-      Serial.print("Try: http://");
-      Serial.print(WiFi.localIP());
-      Serial.println("/stop");
-      
-      // Solid LED = Ready
-      digitalWrite(STATUS_LED, HIGH);
+    // Fast blink while trying to reconnect
+    static unsigned long lastBlink = 0;
+    if (millis() - lastBlink > 200) {
+      lastBlink = millis();
+      digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+    }
+    
+    delay(100);
+    return;
+  }
+  
+  // If WiFi is connected but server hasn't started, start it now
+  if (WiFi.status() == WL_CONNECTED && !server_started) {
+    Serial.println("WiFi connected! Starting HTTP server...");
+    server.begin();
+    server_started = true;
+    Serial.println("✓ HTTP server started on port 80");
+    Serial.println("✓ Ready to receive commands!");
+    Serial.print("Try: http://");
+    Serial.print(WiFi.localIP());
+    Serial.println("/stop");
+    
+    // Solid LED = Ready
+    digitalWrite(STATUS_LED, HIGH);
     }
   }
   

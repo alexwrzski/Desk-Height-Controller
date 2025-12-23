@@ -44,6 +44,7 @@ struct ContentView: View {
         ZStack {
             Color(hex: "1a1a1a")
                 .ignoresSafeArea()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             // App window container
             VStack(spacing: 0) {

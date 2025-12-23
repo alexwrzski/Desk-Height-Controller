@@ -1,171 +1,105 @@
-# IKEA Standing Desk Controller
+# Desk Controller - Swift Native App
 
-A smart WiFi-enabled controller for IKEA electric standing desks that adds precise height control, preset positions, and a modern web interface.
-
-<div align="center">
-  <img src="screenshot.png" alt="Desk Controller Web Interface" width="600">
-</div>
+A native macOS application for controlling an IKEA standing desk via ESP32, built entirely in Swift using SwiftUI.
 
 ## Features
 
 - 🎯 **Precise Height Control**: Move to exact heights using a VL53L0X distance sensor
-- 📱 **Modern Web Interface**: Beautiful, responsive web app accessible from any device
+- 📱 **Native macOS Interface**: Beautiful, native SwiftUI interface
 - 💾 **Preset Positions**: Save and recall up to 3 favorite heights (Sit, Stand, Focus, etc.)
 - 🛡️ **Safety Limits**: Configurable min/max height limits with automatic stop protection
 - ⚡ **Real-time Monitoring**: Live height display updates every 2 seconds
 - 🎮 **Multiple Control Methods**:
-  - Manual up/down buttons
+  - Manual up/down buttons (hold to move)
   - Quick preset buttons
   - Manual height input
 - 🔧 **Non-blocking Movement**: Stop preset movements at any time
-- 📊 **Smart Movement Detection**: Automatically stops when desk hits physical limits
-- 📶 **WiFi Manager**: Easy setup with captive portal - no code editing required!
-- 🔄 **Auto-Reconnect**: Automatically reconnects if WiFi drops
-
-## Quick Start
-
-### 1. Upload Firmware
-```bash
-./upload_esp32.sh
-```
-
-### 2. Start Web App
-
-**Option A: Native Mac App (Recommended)**
-```bash
-pip3 install -r requirements.txt  # Install dependencies (first time only)
-./build_mac_app.sh                 # Build the app
-```
-Then double-click `Desk Controller.app` to launch. Opens in a native window (not a browser).
-
-**Option A2: Standalone DMG (For Distribution - No Dependencies Required!)**
-```bash
-./build_standalone_app.sh  # Build self-contained app (includes all dependencies)
-./build_dmg.sh             # Create DMG installer
-```
-This creates `Desk_Controller.dmg` - a **standalone installer** that users can:
-1. Download and double-click to mount
-2. Drag the app to Applications folder
-3. Launch immediately - **no Python or package installation needed!**
-
-The standalone app includes Python and all dependencies, so end users don't need to install anything.
-
-**Option B: Command Line**
-```bash
-./start_web_app.sh
-```
-Then open your browser to `http://localhost:5000`
-
-### 3. Configure WiFi (First Time Only)
-
-**Option A: Automatic Setup (Recommended)**
-1. ESP32 will create WiFi network: **"DeskController-Setup"**
-2. Connect your phone/computer to this network (password: `setup12345`)
-3. Setup page opens automatically in browser
-4. Enter your WiFi credentials and connect
-5. Note the ESP32 IP address shown
-6. Enter this IP in the web app when prompted
-
-**Option B: Manual Configuration**
-- If ESP32 already has WiFi credentials saved, it will connect automatically
-- Find ESP32 IP address in router admin or serial monitor
-- Enter IP in web app Settings → ESP32 Connection
-
-### 4. Adjust Settings
-- Configure min/max height limits in Settings page
-- Add/edit preset positions
-- Change ESP32 IP address if needed (Settings → ESP32 Connection)
-
-## Project Structure
-
-```
-Desk Controller/
-├── DeskController_ESP32/
-│   └── DeskController_ESP32.ino    # ESP32 firmware
-├── Desk Controller.app              # Mac application (after build)
-├── web_app.py                       # Flask web server
-├── build_mac_app.sh                 # Build Mac app script
-├── upload_esp32.sh                  # Firmware upload script
-├── start_web_app.sh                 # Start web app script
-├── desk_icon.icns                   # Mac app icon
-├── SETUP_GUIDE.md                   # Detailed setup instructions
-├── TESTING_GUIDE.md                 # Testing guide
-└── README.md                        # This file
-```
+- 📶 **WiFi Manager**: Easy setup with ESP32 connection management
 
 ## Requirements
 
-- ESP32 development board
-- VL53L0X Time-of-Flight distance sensor
-- 2-channel relay module
-- IKEA electric standing desk with manual up/down buttons
-- Python 3 with Flask
-- Arduino CLI (for firmware upload)
+- macOS 11.0 (Big Sur) or later
+- Xcode 13.0 or later
+- ESP32 device running DeskController firmware
+- ESP32 and Mac on the same WiFi network
+
+## Building
+
+1. Open `DeskController.xcodeproj` in Xcode
+2. Select your target (DeskController)
+3. Build and run (⌘R)
 
 ## Usage
 
-### Manual Control
+### First Time Setup
+
+1. **Configure ESP32 WiFi** (if not already done):
+   - ESP32 will create WiFi network: **"DeskController-Setup"**
+   - Connect your phone/computer to this network (password: `setup12345`)
+   - Open setup page at `http://192.168.4.1/setup`
+   - Enter your WiFi credentials and connect
+   - Note the ESP32 IP address shown
+
+2. **Configure App**:
+   - Launch the app
+   - Open Settings (⚙ button)
+   - Enter ESP32 IP address in "ESP32 Connection" section
+   - Click "Test Connection" to verify
+   - Click "Save IP" to save
+
+### Controls
+
 - **UP/DOWN buttons**: Hold to move, release to stop
 - **STOP button**: Immediately stops any movement
-
-### Presets
-Click any preset button to move to that saved height. You can stop the movement at any time using the STOP button.
+- **Preset buttons**: Click to move to saved height
+- **Settings**: Configure presets, limits, and ESP32 connection
 
 ### Settings
+
 - **Manual Movement**: Enter a specific height (in mm) to move to
 - **Manage Presets**: Add, edit, or remove preset positions
 - **Safety Limits**: Configure min/max height boundaries
 - **ESP32 Connection**: Configure WiFi IP address, test connection, reset WiFi
 
-## Safety Features
+## Project Structure
 
-- **Emergency stops** at configured limits (minHeight + 10mm, maxHeight - 10mm)
-- **Physical limit detection**: Automatically stops when desk can't move further
-- **Movement timeout**: 30-second safety timeout
-- **Continuous monitoring**: All movement types respect safety limits
+```
+Desk Controller - Swift/
+├── DeskController/
+│   ├── DeskControllerApp.swift    # Main SwiftUI app entry point
+│   ├── ContentView.swift          # Main UI view
+│   ├── SettingsView.swift         # Settings modal
+│   ├── AppState.swift             # Observable state management
+│   ├── ESP32Client.swift          # HTTP client for ESP32
+│   ├── Info.plist                 # App configuration
+│   └── Assets.xcassets/           # App icons
+├── DeskController_ESP32/          # ESP32 firmware (shared)
+└── README.md                      # This file
+```
 
-## Hardware Integration
+## Architecture
 
-The controller uses relays soldered directly to the up/down buttons on the IKEA desk's control panel. The VL53L0X sensor is mounted on the bottom of the desk surface to measure height.
+The app uses:
+- **SwiftUI** for the user interface
+- **Combine** for reactive state management
+- **URLSession** for HTTP communication with ESP32
+- **UserDefaults** for local storage (presets, IP address, limits)
 
-For detailed hardware setup, wiring diagrams, and parts list, see [SETUP_GUIDE.md](SETUP_GUIDE.md).
+## ESP32 Communication
 
-## Troubleshooting
-
-### Desk not moving
-- Check WiFi connection (ESP32 LED should be solid on)
-- Verify relay connections
-- Check serial monitor for error messages
-
-### Height readings incorrect
-- Ensure sensor is mounted securely on desk bottom
-- Check sensor wiring (SDA/SCL connections)
-- Verify sensor is within range (VL53L0X range: ~30-2000mm)
-
-### Can't connect to web app
-- Check ESP32 IP address in Settings → ESP32 Connection
-- Use "Test Connection" button to verify connectivity
-- If disconnected, web app will show setup page automatically
-- Ensure ESP32 and computer are on same network
-- Ensure web app is running (`./start_web_app.sh`)
-
-### WiFi Setup Issues
-- **ESP32 not creating "DeskController-Setup" network**: 
-  - Check serial monitor for errors
-  - Try resetting ESP32 or use "Reset WiFi" in Settings
-- **Can't access setup page**: 
-  - Connect to "DeskController-Setup" WiFi first
-  - Open any browser - setup page should open automatically
-  - Or manually navigate to `http://192.168.4.1/setup`
-- **WiFi connection fails**: 
-  - Ensure network is 2.4GHz (ESP32 doesn't support 5GHz)
-  - Check password is correct
-  - Verify network is in range
+The app communicates with the ESP32 via HTTP GET requests:
+- `/status` - Get current height
+- `/up` - Move up
+- `/down` - Move down
+- `/stop` - Stop movement
+- `/goto{N}` - Go to preset N
+- `/height{height}` - Move to specific height
+- `/limits` - Get min/max limits
+- `/setmin{value}` - Set min limit
+- `/setmax{value}` - Set max limit
+- `/set{N} {height}` - Set preset N
+- `/resetwifi` - Reset WiFi settings
 
 ## License
 
 This project is open source and available for personal use.
-
-## Contributing
-
-Feel free to submit issues or pull requests if you have improvements!

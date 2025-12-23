@@ -336,10 +336,10 @@ class AppState: ObservableObject {
                                     
                                     // If isMoving is true (set by button press), ALWAYS update height (live view)
                                     if self.isMoving {
-                                        // Check if height is actually changing
+                                        // Check if height is actually changing (use larger threshold to account for sensor noise)
                                         let heightChanged: Bool
                                         if let lastHeight = self.lastHeightValue {
-                                            heightChanged = abs(height - lastHeight) > 2 // Changed by more than 2mm
+                                            heightChanged = abs(height - lastHeight) > 5 // Changed by more than 5mm (reduced sensitivity)
                                         } else {
                                             heightChanged = true // First reading
                                         }
@@ -348,51 +348,67 @@ class AppState: ObservableObject {
                                             // Height is changing - desk is moving, reset stability counter
                                             self.stableHeightCount = 0
                                             print("📊 Height changing - updated to \(height)mm (live view)")
+                                            // Update height when it's actually changing
+                                            self.objectWillChange.send() // Explicitly trigger UI update
+                                            self.currentHeight = height
+                                            self.lastHeightValue = height
                                         } else {
                                             // Height is stable - check if desk has stopped
                                             self.stableHeightCount += 1
-                                            if self.stableHeightCount >= 4 {
-                                                // Height stable for 4 polls (2 seconds), desk has stopped
-                                                print("🛑 Desk stopped - height stabilized at \(height)mm")
+                                            if self.stableHeightCount >= 2 {
+                                                // Height stable for 2 polls (1 second), desk has stopped - freeze immediately
+                                                print("🛑 Desk stopped - height stabilized at \(height)mm - freezing display")
                                                 self.isMoving = false
                                                 self.heightUpdatePaused = true
+                                                // Update height one final time to show the stable value, then freeze
+                                                self.objectWillChange.send()
+                                                self.currentHeight = height
+                                                self.lastHeightValue = height
                                                 self.startIdlePolling() // Switch to idle polling
                                             } else {
-                                                print("📊 Still moving (stable count: \(self.stableHeightCount)) - updated to \(height)mm")
+                                                // Still checking if stopped, keep updating but we're close
+                                                print("📊 Stabilizing (stable count: \(self.stableHeightCount)/2) - updated to \(height)mm")
+                                                self.objectWillChange.send()
+                                                self.currentHeight = height
+                                                self.lastHeightValue = height
                                             }
                                         }
-                                        
-                                        // Always update height when isMoving is true (live view)
-                                        self.objectWillChange.send() // Explicitly trigger UI update
-                                        self.currentHeight = height
-                                        self.lastHeightValue = height
                                     } else {
                                         // Not moving - check if height is stable
                                         let heightChanged: Bool
                                         if let lastHeight = self.lastHeightValue {
-                                            heightChanged = abs(height - lastHeight) > 2
+                                            heightChanged = abs(height - lastHeight) > 5 // Use larger threshold
                                         } else {
                                             heightChanged = true
                                         }
                                         
-                                        if heightChanged {
-                                            // Height changed but we're not in moving state - update once
+                                        if heightChanged && !self.heightUpdatePaused {
+                                            // Height changed significantly but we're not in moving state - update once
                                             self.stableHeightCount = 0
                                             self.heightUpdatePaused = false
                                             self.objectWillChange.send()
                                             self.currentHeight = height
                                             self.lastHeightValue = height
                                             print("📊 Height changed to \(height)mm (not moving)")
-                                        } else {
-                                            // Height is stable
+                                        } else if !self.heightUpdatePaused {
+                                            // Height is stable and not paused yet
                                             self.stableHeightCount += 1
-                                            if self.stableHeightCount >= 3 && !self.heightUpdatePaused {
-                                                // First time detecting stability, pause updates
+                                            if self.stableHeightCount >= 2 {
+                                                // Height stable for 2 polls, pause updates immediately
                                                 self.heightUpdatePaused = true
-                                                print("🛑 Height stable at \(height)mm - pausing updates")
+                                                // Update one final time then freeze
+                                                self.objectWillChange.send()
+                                                self.currentHeight = height
+                                                self.lastHeightValue = height
+                                                print("🛑 Height stable at \(height)mm - freezing display")
+                                            } else {
+                                                // Still checking, update while checking
+                                                self.objectWillChange.send()
+                                                self.currentHeight = height
+                                                self.lastHeightValue = height
                                             }
-                                            // Don't update when paused
                                         }
+                                        // When paused, don't update at all (height is frozen)
                                     }
                                     
                                     self.isConnected = true

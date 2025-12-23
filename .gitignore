@@ -51,8 +51,20 @@ web_app_backup.py
 *.temp
 
 
-# Mac App Bundle
+# Mac App Bundle (but keep source)
 *.app/
+build/
+DerivedData/
+
+# Xcode
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcshareddata/swiftpm/configuration/
+*.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
 # Python cache
 __pycache__/
 *.pyc
@@ -62,7 +74,9 @@ __pycache__/
 *.dmg
 
 # PyInstaller build artifacts
-build/
 dist/
 *.spec
-*.pyc
+
+# Screenshots (optional - uncomment if you want to ignore them)
+# *.png
+# Screenshot*.png
