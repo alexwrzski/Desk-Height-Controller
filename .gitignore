@@ -60,3 +60,9 @@ __pycache__/
 
 # DMG files
 *.dmg
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+*.pyc
