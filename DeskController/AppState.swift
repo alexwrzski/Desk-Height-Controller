@@ -71,6 +71,10 @@ class AppState: ObservableObject {
     private var pollingTimer: Timer?
     private var movementTimer: Timer?
     private var lastMovementTime: Date?
+    private var lastHeightValue: Int? = nil
+    private var stableHeightCount: Int = 0
+    private var heightUpdatePaused: Bool = false
+    private var heightChangeDetected: Bool = false
     let client: ESP32Client
     
     init() {
@@ -121,8 +125,17 @@ class AppState: ObservableObject {
     
     func startIdlePolling() {
         pollingTimer?.invalidate()
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            self?.updateHeight()
+        // When idle and height is stable, don't poll for height updates
+        // Only poll occasionally for connection status (every 30 seconds)
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            // Just check connection, don't update height when stable
+            guard let self = self else { return }
+            if !self.heightUpdatePaused {
+                self.updateHeight()
+            } else {
+                // Height is stable, just check connection status without updating height
+                self.checkConnectionOnly()
+            }
         }
         RunLoop.main.add(pollingTimer!, forMode: .common)
     }
@@ -131,32 +144,30 @@ class AppState: ObservableObject {
         // Stop idle polling
         pollingTimer?.invalidate()
         
-        // Mark as moving
+        // Mark as moving and resume height updates
+        // This is called when movement starts (up/down/preset buttons)
         isMoving = true
+        heightUpdatePaused = false
+        stableHeightCount = 0
+        heightChangeDetected = false
         lastMovementTime = Date()
+        
+        print("🚀 startMovementPolling() - isMoving set to true")
         
         // Poll frequently while moving (every 0.5 seconds)
         pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.updateHeight()
+            guard let self = self else { return }
+            // Ensure isMoving stays true while polling
+            if !self.isMoving {
+                print("⚠️ isMoving was false during movement polling - resetting to true")
+                self.isMoving = true
+            }
+            self.updateHeight()
         }
         RunLoop.main.add(pollingTimer!, forMode: .common)
         
-        // Schedule a timer to stop movement polling after 2 seconds of no movement
-        movementTimer?.invalidate()
-        movementTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
-            guard let self = self else {
-                timer.invalidate()
-                return
-            }
-            
-            // If no movement for 2 seconds, switch back to idle polling
-            if let lastMove = self.lastMovementTime, Date().timeIntervalSince(lastMove) >= 2.0 {
-                self.isMoving = false
-                self.startIdlePolling()
-                timer.invalidate()
-            }
-        }
-        RunLoop.main.add(movementTimer!, forMode: .common)
+        // Don't automatically stop - let height change detection determine when to stop
+        // The movement detection will happen in updateHeight based on actual height changes
     }
     
     func stopPolling() {
@@ -165,6 +176,27 @@ class AppState: ObservableObject {
         movementTimer?.invalidate()
         movementTimer = nil
         isMoving = false
+        heightUpdatePaused = false
+        stableHeightCount = 0
+    }
+    
+    func checkConnectionOnly() {
+        // Check connection status without updating height
+        // This is used when height is stable to just verify connection
+        Task {
+            let connected = await client.testConnection()
+            await MainActor.run {
+                if connected {
+                    self.isConnected = true
+                    self.statusMessage = "Connected"
+                    self.statusColor = "#4ade80"
+                } else {
+                    self.isConnected = false
+                    self.statusMessage = "Disconnected"
+                    self.statusColor = "#f87171"
+                }
+            }
+        }
     }
     
     func updateHeight() {
@@ -301,12 +333,72 @@ class AppState: ObservableObject {
                                 if let height = Int(heightString) {
                                     print("✅ SUCCESS! Setting height to \(height)mm")
                                     // We're on main thread (@MainActor)
-                                    self.objectWillChange.send() // Explicitly trigger UI update
-                                    self.currentHeight = height
+                                    
+                                    // If isMoving is true (set by button press), ALWAYS update height (live view)
+                                    if self.isMoving {
+                                        // Check if height is actually changing
+                                        let heightChanged: Bool
+                                        if let lastHeight = self.lastHeightValue {
+                                            heightChanged = abs(height - lastHeight) > 2 // Changed by more than 2mm
+                                        } else {
+                                            heightChanged = true // First reading
+                                        }
+                                        
+                                        if heightChanged {
+                                            // Height is changing - desk is moving, reset stability counter
+                                            self.stableHeightCount = 0
+                                            print("📊 Height changing - updated to \(height)mm (live view)")
+                                        } else {
+                                            // Height is stable - check if desk has stopped
+                                            self.stableHeightCount += 1
+                                            if self.stableHeightCount >= 4 {
+                                                // Height stable for 4 polls (2 seconds), desk has stopped
+                                                print("🛑 Desk stopped - height stabilized at \(height)mm")
+                                                self.isMoving = false
+                                                self.heightUpdatePaused = true
+                                                self.startIdlePolling() // Switch to idle polling
+                                            } else {
+                                                print("📊 Still moving (stable count: \(self.stableHeightCount)) - updated to \(height)mm")
+                                            }
+                                        }
+                                        
+                                        // Always update height when isMoving is true (live view)
+                                        self.objectWillChange.send() // Explicitly trigger UI update
+                                        self.currentHeight = height
+                                        self.lastHeightValue = height
+                                    } else {
+                                        // Not moving - check if height is stable
+                                        let heightChanged: Bool
+                                        if let lastHeight = self.lastHeightValue {
+                                            heightChanged = abs(height - lastHeight) > 2
+                                        } else {
+                                            heightChanged = true
+                                        }
+                                        
+                                        if heightChanged {
+                                            // Height changed but we're not in moving state - update once
+                                            self.stableHeightCount = 0
+                                            self.heightUpdatePaused = false
+                                            self.objectWillChange.send()
+                                            self.currentHeight = height
+                                            self.lastHeightValue = height
+                                            print("📊 Height changed to \(height)mm (not moving)")
+                                        } else {
+                                            // Height is stable
+                                            self.stableHeightCount += 1
+                                            if self.stableHeightCount >= 3 && !self.heightUpdatePaused {
+                                                // First time detecting stability, pause updates
+                                                self.heightUpdatePaused = true
+                                                print("🛑 Height stable at \(height)mm - pausing updates")
+                                            }
+                                            // Don't update when paused
+                                        }
+                                    }
+                                    
                                     self.isConnected = true
                                     self.statusMessage = "Connected"
                                     self.statusColor = "#4ade80"
-                                    print("✅ UI updated - statusMessage: \(self.statusMessage), height: \(self.currentHeight ?? -1)")
+                                    print("✅ UI updated - statusMessage: \(self.statusMessage), height: \(self.currentHeight ?? -1), isMoving: \(self.isMoving)")
                                     heightFound = true
                                     break
                                 } else {
@@ -344,14 +436,34 @@ class AppState: ObservableObject {
     }
     
     func moveUp() {
-        startMovementPolling()
-        lastMovementTime = Date() // Update movement time
+        // Resume height updates when starting movement
+        // This is called repeatedly while button is held (every 200ms)
+        // Ensure isMoving stays true
+        if !isMoving {
+            print("🔼 moveUp() called - starting movement polling")
+            startMovementPolling()
+        } else {
+            // Already moving, just update the last movement time
+            lastMovementTime = Date()
+        }
+        heightUpdatePaused = false
+        stableHeightCount = 0
         sendCommand("up")
     }
     
     func moveDown() {
-        startMovementPolling()
-        lastMovementTime = Date() // Update movement time
+        // Resume height updates when starting movement
+        // This is called repeatedly while button is held (every 200ms)
+        // Ensure isMoving stays true
+        if !isMoving {
+            print("🔽 moveDown() called - starting movement polling")
+            startMovementPolling()
+        } else {
+            // Already moving, just update the last movement time
+            lastMovementTime = Date()
+        }
+        heightUpdatePaused = false
+        stableHeightCount = 0
         sendCommand("down")
     }
     
@@ -363,11 +475,17 @@ class AppState: ObservableObject {
     
     func goToPreset(_ index: Int) {
         guard index < presets.count else { return }
+        // Resume height updates when starting movement
+        heightUpdatePaused = false
+        stableHeightCount = 0
         startMovementPolling()
         sendCommand("goto\(index)")
     }
     
     func moveToHeight(_ height: Int) {
+        // Resume height updates when starting movement
+        heightUpdatePaused = false
+        stableHeightCount = 0
         startMovementPolling()
         sendCommand("height\(height)")
     }
