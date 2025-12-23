@@ -95,45 +95,54 @@ echo "Mounted at: $MOUNT_DIR"
 sleep 2
 
 # Set volume icon (if available and SetFile command exists)
-if [ -f "$SCRIPT_DIR/desk_icon.icns" ] && command -v SetFile &> /dev/null; then
+# Skip if we don't have write permissions
+if [ -f "$SCRIPT_DIR/desk_icon.icns" ] && command -v SetFile &> /dev/null && [ -w "$MOUNT_DIR" ]; then
     echo "Setting volume icon..."
     cp "$SCRIPT_DIR/desk_icon.icns" "$MOUNT_DIR/.VolumeIcon.icns" 2>/dev/null || true
     SetFile -a C "$MOUNT_DIR" 2>/dev/null || true
 fi
 
-# Configure DMG layout using AppleScript
+# Configure DMG layout using AppleScript (with error handling)
 echo "Configuring DMG layout..."
-osascript <<EOF
+osascript <<EOF || true
 tell application "Finder"
-    set theDisk to disk "$VOLUME_NAME"
-    open theDisk
-    set theWindow to container window of theDisk
-    set current view of theWindow to icon view
-    set toolbar visible of theWindow to false
-    set statusbar visible of theWindow to false
-    set the bounds of theWindow to {400, 100, 900, 500}
-    set opts to icon view options of theWindow
-    set arrangement of opts to not arranged
-    set icon size of opts to 128
     try
-        set position of item "$APP_NAME.app" of theWindow to {150, 200}
-        set position of item "Applications" of theWindow to {450, 200}
+        set theDisk to disk "$VOLUME_NAME"
+        if not (exists theDisk) then return
+        open theDisk
+        delay 1
+        set theWindow to container window of theDisk
+        if not (exists theWindow) then return
+        set current view of theWindow to icon view
+        set toolbar visible of theWindow to false
+        set statusbar visible of theWindow to false
+        set the bounds of theWindow to {400, 100, 900, 500}
+        set opts to icon view options of theWindow
+        set arrangement of opts to not arranged
+        set icon size of opts to 128
+        try
+            set position of item "$APP_NAME.app" of theWindow to {150, 200}
+            set position of item "Applications" of theWindow to {450, 200}
+        end try
+        close theWindow
+        delay 1
     end try
-    close theWindow
-    open theWindow
-    update theDisk without registering applications
-    delay 2
 end tell
 EOF
 
 # Unmount the DMG
 echo "Unmounting disk image..."
-sleep 1
-hdiutil detach "$MOUNT_DIR" -force 2>/dev/null || hdiutil detach "$MOUNT_DIR" 2>/dev/null || true
+sleep 2
+# Try multiple times to unmount
+for i in 1 2 3; do
+    hdiutil detach "$MOUNT_DIR" -force 2>/dev/null && break
+    sleep 1
+done
+hdiutil detach "$MOUNT_DIR" 2>/dev/null || true
 rm -f /tmp/dmg_mount.txt
 
 # Wait a moment for unmount to complete
-sleep 2
+sleep 3
 
 # Convert to compressed read-only DMG
 echo "Compressing DMG..."
