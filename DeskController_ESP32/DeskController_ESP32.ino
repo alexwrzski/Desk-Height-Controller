@@ -6,9 +6,9 @@
 #define STATUS_LED 4  // Status LED pin (use GPIO 4, or change to your board's built-in LED pin)
 
 // Wi-Fi credentials
-// NOTE: ESP32 only supports 2.4GHz WiFi, NOT 5GHz!
-const char* ssid = "Free WiFi";  // 2.4GHz network
-const char* password = "nashaxata";
+// NOTE: ESP32 only supports 2.4GHz WiFi!
+const char* ssid = "YOUR_WIFI";  // 2.4GHz network
+const char* password = "YOU_PASSWORD";
 
 WiFiServer server(80);
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
