@@ -50,3 +50,10 @@ web_app_backup.py
 *.tmp
 *.temp
 
+
+# Mac App Bundle
+*.app/
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

@@ -30,10 +30,17 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
 ```
 
 ### 2. Start Web App
+
+**Option A: Mac App (Recommended)**
+```bash
+./build_mac_app.sh  # Build the app (first time only)
+```
+Then double-click `Desk Controller.app` to launch. The browser will open automatically.
+
+**Option B: Command Line**
 ```bash
 ./start_web_app.sh
 ```
-
 Then open your browser to `http://localhost:5000`
 
 ### 3. Configure WiFi (First Time Only)
@@ -62,10 +69,14 @@ Then open your browser to `http://localhost:5000`
 Desk Controller/
 ├── DeskController_ESP32/
 │   └── DeskController_ESP32.ino    # ESP32 firmware
+├── Desk Controller.app              # Mac application (after build)
 ├── web_app.py                       # Flask web server
+├── build_mac_app.sh                 # Build Mac app script
 ├── upload_esp32.sh                  # Firmware upload script
 ├── start_web_app.sh                 # Start web app script
+├── desk_icon.icns                   # Mac app icon
 ├── SETUP_GUIDE.md                   # Detailed setup instructions
+├── TESTING_GUIDE.md                 # Testing guide
 └── README.md                        # This file
 ```
 

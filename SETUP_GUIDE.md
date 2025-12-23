@@ -526,16 +526,42 @@ This 10mm buffer prevents overshoot.
 
 ## LED Status Guide
 
-The ESP32 status LED indicates system state:
+The ESP32 status LED (GPIO 4) indicates system state:
+
+**LED Pin Setup:**
+- **GPIO 4** is used for the status LED
+- If your ESP32 board doesn't have an LED on GPIO 4:
+  1. Connect an external LED with a 220Ω resistor between GPIO 4 and GND
+  2. Or change `#define STATUS_LED 4` to your board's built-in LED pin
+
+**LED Status Meanings:**
 
 - **3 Quick Blinks**: Startup/Initialization
-- **Fast Blink**: Connecting to WiFi
-- **Solid ON**: Connected to WiFi, server running, ready
-- **Slow Blink (1 second)**: Access Point mode (WiFi setup mode)
-- **Fast Blink (200ms)**: WiFi disconnected, attempting reconnect
-- **OFF**: WiFi connection failed or ESP32 not powered
+  - ESP32 is booting up
+  - Sensor initialization
 
-See [LED_STATUS_GUIDE.md](LED_STATUS_GUIDE.md) for more details.
+- **Fast Blink (50ms)**: Connecting to WiFi
+  - ESP32 is trying to connect to saved WiFi credentials
+  - Can take up to 30 seconds
+
+- **Solid ON**: Ready! ✓
+  - WiFi connected successfully
+  - HTTP server started on port 80
+  - Ready to receive commands from the app
+
+- **Slow Blink (1 second)**: Access Point mode (WiFi setup mode)
+  - ESP32 is in setup mode
+  - Connect to "DeskController-Setup" network
+  - Setup page available at http://192.168.4.1/setup
+
+- **Fast Blink (200ms)**: WiFi disconnected, attempting reconnect
+  - WiFi connection lost
+  - ESP32 is trying to reconnect every 10 seconds
+
+- **OFF**: Error/Not Connected
+  - WiFi connection failed
+  - Check serial monitor for error messages
+  - Verify WiFi credentials and network (must be 2.4GHz)
 
 ## Technical Details
 
