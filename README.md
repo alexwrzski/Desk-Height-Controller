@@ -2,6 +2,8 @@
 
 A smart WiFi-enabled controller for IKEA electric standing desks that adds precise height control, preset positions, and a modern web interface.
 
+![Desk Controller Web Interface](Screenshot%202025-12-22%20at%2020.18.15.png)
+
 ## Features
 
 - 🎯 **Precise Height Control**: Move to exact heights using a VL53L0X distance sensor
