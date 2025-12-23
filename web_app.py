@@ -134,7 +134,7 @@ HTML_TEMPLATE = """
             <div style="display:flex; gap:8px; align-items:flex-end;">
                 <div style="flex:1;">
                     <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">Target Height (mm)</label>
-                    <input type="number" id="manual-height-input" placeholder="Height (mm)" style="background:#111; border:1px solid #444; color:white; padding:8px; border-radius:6px; width:100%; box-sizing:border-box;">
+                    <input type="number" id="manual-height-input" placeholder="Height (mm)" oninput="validateManualHeight()" style="background:#111; border:1px solid #444; color:white; padding:8px; border-radius:6px; width:100%; box-sizing:border-box;">
                 </div>
                 <button onclick="moveToHeight()" style="background:var(--accent-blue); color:white; padding:8px 16px; border-radius:6px; height:36px; white-space:nowrap;">Move</button>
             </div>
@@ -152,20 +152,22 @@ HTML_TEMPLATE = """
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                 <div>
                     <label style="font-size:11px; color:var(--text-dim)">Min (mm)</label>
-                    <input type="number" id="min-limit" value="575" style="background:#111; border:1px solid #444; color:white; padding:8px; border-radius:6px; width:100%; box-sizing:border-box;">
+                    <input type="number" id="min-limit" value="575" oninput="updateManualLimits(); validatePresets();" style="background:#111; border:1px solid #444; color:white; padding:8px; border-radius:6px; width:100%; box-sizing:border-box;">
                 </div>
                 <div>
                     <label style="font-size:11px; color:var(--text-dim)">Max (mm)</label>
-                    <input type="number" id="max-limit" value="1185" style="background:#111; border:1px solid #444; color:white; padding:8px; border-radius:6px; width:100%; box-sizing:border-box;">
+                    <input type="number" id="max-limit" value="1185" oninput="updateManualLimits(); validatePresets();" style="background:#111; border:1px solid #444; color:white; padding:8px; border-radius:6px; width:100%; box-sizing:border-box;">
                 </div>
             </div>
         </div>
 
-        <button class="save-btn" onclick="saveSettings()">Save All Changes</button>
+        <button class="save-btn" onclick="saveSettingsWithValidation()">Save All Changes</button>
     </div>
 </div>
 
 <script>
+    // Version: 2.1 - Preset validation with explicit blocking
+    console.log('[OK] Desk Controller JavaScript v2.1 loaded at', new Date().toISOString());
     const ESP32_IP = '{{ esp32_ip }}';
     let moveInterval = null;
 
@@ -182,6 +184,11 @@ HTML_TEMPLATE = """
             renderPresetManager();
             loadLimits();
             updateManualLimits();
+            // Small delay to ensure limits are loaded before validating
+            setTimeout(() => {
+                validatePresets();
+                validateManualHeight();
+            }, 100);
         }
     }
 
@@ -191,7 +198,69 @@ HTML_TEMPLATE = """
         const input = document.getElementById('manual-height-input');
         input.min = min;
         input.max = max;
-        document.getElementById('manual-limits-info').textContent = `Min: ${min}mm | Max: ${max}mm`;
+        const limitsInfo = document.getElementById('manual-limits-info');
+        limitsInfo.textContent = `Min: ${min}mm | Max: ${max}mm`;
+        
+        // Check if current manual input value is outside limits
+        validateManualHeight();
+    }
+    
+    function validateManualHeight() {
+        const input = document.getElementById('manual-height-input');
+        const min = parseInt(document.getElementById('min-limit').value) || 575;
+        const max = parseInt(document.getElementById('max-limit').value) || 1185;
+        const value = parseInt(input.value);
+        const limitsInfo = document.getElementById('manual-limits-info');
+        
+        if (input.value && (value < min || value > max)) {
+            limitsInfo.innerHTML = `<span style="color: #f87171;">⚠️ Warning: Value ${value}mm is outside limits (${min}-${max}mm). Adjust limits or change value.</span>`;
+            input.style.borderColor = '#f87171';
+        } else {
+            limitsInfo.textContent = `Min: ${min}mm | Max: ${max}mm`;
+            input.style.borderColor = '#444';
+        }
+    }
+    
+    function validatePresets() {
+        const min = parseInt(document.getElementById('min-limit').value) || 575;
+        const max = parseInt(document.getElementById('max-limit').value) || 1185;
+        const rows = document.querySelectorAll('.preset-manager-row');
+        let hasWarnings = false;
+        let warningText = '';
+        
+        rows.forEach((row, i) => {
+            const heightInput = row.querySelector('.p-val');
+            const heightValue = parseInt(heightInput.value);
+            const nameInput = row.querySelector('.p-name');
+            const presetName = nameInput.value || `Preset ${i+1}`;
+            
+            if (heightInput.value && (heightValue < min || heightValue > max)) {
+                hasWarnings = true;
+                heightInput.style.borderColor = '#f87171';
+                warningText += `${presetName} (${heightValue}mm) is outside limits (${min}-${max}mm).<br>`;
+            } else {
+                heightInput.style.borderColor = '#444';
+            }
+        });
+        
+        // Show/hide warning message
+        let warningDiv = document.getElementById('preset-warning');
+        if (hasWarnings) {
+            if (!warningDiv) {
+                warningDiv = document.createElement('div');
+                warningDiv.id = 'preset-warning';
+                warningDiv.style.cssText = 'background: #422; border: 1px solid #f87171; border-radius: 6px; padding: 10px; margin-top: 10px; font-size: 11px; color: #f87171;';
+                const presetSection = document.querySelector('.card:has(#preset-manager-list)');
+                const presetList = document.getElementById('preset-manager-list');
+                presetSection.insertBefore(warningDiv, presetList.nextSibling);
+            }
+            warningDiv.innerHTML = '<strong>⚠️ Warning:</strong> Some presets are outside height limits:<br>' + warningText + 
+                'Either adjust the height limits or change the preset heights.';
+        } else {
+            if (warningDiv) {
+                warningDiv.remove();
+            }
+        }
     }
 
     function moveToHeight() {
@@ -205,12 +274,13 @@ HTML_TEMPLATE = """
         }
         
         if (height < min || height > max) {
-            alert(`Height must be between ${min}mm and ${max}mm`);
+            alert(`Height ${height}mm is outside the configured limits (${min}-${max}mm).\n\nPlease either:\n- Adjust the height limits in Settings\n- Enter a height within the current limits`);
             return;
         }
         
         sendCommand('height' + height);
         document.getElementById('manual-height-input').value = '';
+        validateManualHeight(); // Reset validation
     }
 
     function renderMainPresets() {
@@ -224,11 +294,12 @@ HTML_TEMPLATE = """
         const list = document.getElementById('preset-manager-list');
         list.innerHTML = presets.map((p, i) => `
             <div class="preset-manager-row">
-                <input type="text" value="${p.name}" class="p-name" placeholder="Name" style="flex:2">
-                <input type="number" value="${p.height}" class="p-val" placeholder="mm" style="flex:1">
+                <input type="text" value="${p.name}" class="p-name" placeholder="Name" oninput="validatePresets()" style="flex:2">
+                <input type="number" value="${p.height}" class="p-val" placeholder="mm" oninput="validatePresets()" style="flex:1">
                 <button class="btn-delete" onclick="removePresetRow(this)">×</button>
             </div>
         `).join('');
+        validatePresets(); // Validate after rendering
     }
 
     function addPresetRow() {
@@ -236,8 +307,8 @@ HTML_TEMPLATE = """
         const div = document.createElement('div');
         div.className = 'preset-manager-row';
         div.innerHTML = `
-            <input type="text" placeholder="Name" class="p-name" style="flex:2">
-            <input type="number" placeholder="mm" class="p-val" style="flex:1">
+            <input type="text" placeholder="Name" class="p-name" oninput="validatePresets()" style="flex:2">
+            <input type="number" placeholder="mm" class="p-val" oninput="validatePresets()" style="flex:1">
             <button class="btn-delete" onclick="removePresetRow(this)">×</button>
         `;
         list.appendChild(div);
@@ -251,6 +322,7 @@ HTML_TEMPLATE = """
         presets.splice(index, 1);
         localStorage.setItem('deskPresets', JSON.stringify(presets));
         renderMainPresets();
+        validatePresets(); // Re-validate after removal
     }
 
     function loadLimits() {
@@ -267,6 +339,7 @@ HTML_TEMPLATE = """
                 document.getElementById('min-limit').value = minMatch[1];
                 document.getElementById('max-limit').value = maxMatch[1];
                 updateManualLimits();
+                validatePresets(); // Validate presets after loading limits
             }
         })
         .catch(error => {
@@ -274,15 +347,34 @@ HTML_TEMPLATE = """
         });
     }
 
+    // Validation wrapper to ensure it always runs
+    async function saveSettingsWithValidation() {
+        console.log('=== SAVE BUTTON CLICKED - VALIDATION v2.0 ===');
+        await saveSettings();
+    }
+    
     async function saveSettings() {
         // Collect UI values
         const rows = document.querySelectorAll('.preset-manager-row');
         const newPresets = [];
+        const minInput = document.getElementById('min-limit');
+        const maxInput = document.getElementById('max-limit');
+        const min = parseInt(minInput.value) || 575;
+        const max = parseInt(maxInput.value) || 1185;
+        
+        console.log('SaveSettings called - Min:', min, 'Max:', max);
+        
         rows.forEach((row, i) => {
-            const name = row.querySelector('.p-name').value || `Preset ${i+1}`;
-            const val = row.querySelector('.p-val').value;
+            const nameInput = row.querySelector('.p-name');
+            const heightInput = row.querySelector('.p-val');
+            const name = nameInput ? nameInput.value.trim() : `Preset ${i+1}`;
+            const val = heightInput ? heightInput.value.trim() : '';
             if (val) {
-                newPresets.push({ name, height: parseInt(val) });
+                const height = parseInt(val);
+                if (!isNaN(height)) {
+                    newPresets.push({ name, height: height });
+                    console.log(`Preset ${i}: ${name} = ${height}mm`);
+                }
             }
         });
 
@@ -290,6 +382,43 @@ HTML_TEMPLATE = """
             alert('Please add at least one preset');
             return;
         }
+        
+        // VALIDATION v2.0: Check if any presets are outside limits
+        console.log('=== STARTING VALIDATION ===');
+        console.log('Checking', newPresets.length, 'presets against limits: Min:', min, 'Max:', max);
+        
+        const outOfRangePresets = [];
+        newPresets.forEach((p, idx) => {
+            const isTooLow = p.height < min;
+            const isTooHigh = p.height > max;
+            const isOutOfRange = isTooLow || isTooHigh;
+            
+            console.log(`Preset ${idx}: "${p.name}" = ${p.height}mm | Min:${min} | Max:${max} | TooLow:${isTooLow} | TooHigh:${isTooHigh} | OutOfRange:${isOutOfRange}`);
+            
+            if (isOutOfRange) {
+                outOfRangePresets.push(p);
+                console.warn('[WARNING] VALIDATION FAILED: "' + p.name + '" (' + p.height + 'mm) is OUTSIDE limits (' + min + '-' + max + 'mm)');
+            }
+        });
+        
+        console.log(`Validation result: ${outOfRangePresets.length} preset(s) out of range`);
+        
+        if (outOfRangePresets.length > 0) {
+            console.error('[BLOCKED] BLOCKING SAVE - Invalid presets detected!');
+            const presetList = outOfRangePresets.map(function(p) { return '  - ' + p.name + ': ' + p.height + 'mm'; }).join('\\n');
+            alert(
+                `[VALIDATION v2.0] Cannot save: The following presets are outside the height limits (${min}-${max}mm):\n\n${presetList}\n\n` +
+                `Please either:\n` +
+                `- Adjust the height limits to include these preset values\n` +
+                `- Change the preset heights to be within the current limits (${min}-${max}mm)`
+            );
+            console.log('SAVE BLOCKED - presets outside limits:', outOfRangePresets);
+            console.log('Min:', min, 'Max:', max, 'Out of range count:', outOfRangePresets.length);
+            console.log('=== VALIDATION FAILED - RETURNING EARLY ===');
+            return; // Block saving - This MUST prevent the code below from running
+        }
+        
+        console.log('[OK] Validation passed - all presets within limits, proceeding with save');
 
         presets = newPresets;
         localStorage.setItem('deskPresets', JSON.stringify(presets));
@@ -310,11 +439,11 @@ HTML_TEMPLATE = """
         }
 
         // Push limits
-        const min = document.getElementById('min-limit').value;
-        const max = document.getElementById('max-limit').value;
+        const minLimit = document.getElementById('min-limit').value;
+        const maxLimit = document.getElementById('max-limit').value;
         try {
-            await fetch(`${ESP32_IP}/setmin${min}`, { method: 'GET', mode: 'cors', cache: 'no-cache' });
-            await fetch(`${ESP32_IP}/setmax${max}`, { method: 'GET', mode: 'cors', cache: 'no-cache' });
+            await fetch(`${ESP32_IP}/setmin${minLimit}`, { method: 'GET', mode: 'cors', cache: 'no-cache' });
+            await fetch(`${ESP32_IP}/setmax${maxLimit}`, { method: 'GET', mode: 'cors', cache: 'no-cache' });
         } catch (e) {
             console.error('Error saving limits:', e);
         }
