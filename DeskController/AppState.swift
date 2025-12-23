@@ -194,20 +194,28 @@ class AppState: ObservableObject {
         print("🔍 Making request to: \(url.absoluteString)")
         
         // Use async/await for more reliable network handling
-        Task { @MainActor in
+        Task {
             do {
                 print("🌐 Starting network request...")
                 let (data, response) = try await URLSession.shared.data(for: request)
                 print("📦 Received response, processing...")
-                self.handleResponse(data: data, response: response, error: nil)
+                // Ensure we process on main thread for UI updates
+                await MainActor.run {
+                    self.handleResponse(data: data, response: response, error: nil)
+                }
             } catch {
                 print("💥 Network request failed: \(error.localizedDescription)")
-                self.handleResponse(data: nil, response: nil, error: error)
+                // Ensure we process on main thread for UI updates
+                await MainActor.run {
+                    self.handleResponse(data: nil, response: nil, error: error)
+                }
             }
         }
     }
     
+    @MainActor
     private func handleResponse(data: Data?, response: URLResponse?, error: Error?) {
+        // This function is now guaranteed to run on MainActor/main thread
         if let error = error {
                     print("❌ Request error: \(error.localizedDescription)")
                     print("   Error domain: \((error as NSError).domain)")
@@ -253,53 +261,76 @@ class AppState: ObservableObject {
                 print(String(text.prefix(500)))
                 print("📏 Full length: \(text.count) characters")
                 
+                // Clean the text - remove HTML tags and normalize whitespace
+                var cleanText = text
+                // Remove HTML tags if present
+                cleanText = cleanText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                // Normalize whitespace
+                cleanText = cleanText.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                
+                print("🧹 Cleaned text (first 500 chars):")
+                print(String(cleanText.prefix(500)))
+                
                 // Try multiple regex patterns to match the height with different options
                 // Try exact patterns first, then more flexible ones
                 let patternConfigs: [(pattern: String, options: NSRegularExpression.Options)] = [
-                    ("Current Height: (\\d+) mm", []),  // Exact match - most common
-                    ("Current Height:\\s*(\\d+)\\s*mm", []),  // Flexible whitespace
-                    ("Current Height: (\\d+) mm", [.caseInsensitive]),  // Case-insensitive exact
-                    ("Current Height:\\s*(\\d+)\\s*mm", [.caseInsensitive]),  // Case-insensitive + flexible whitespace
-                    ("Current\\s+Height:\\s*(\\d+)\\s*mm", [.caseInsensitive]),  // Very flexible whitespace
+                    ("Current Height: (\\d+) mm", [.caseInsensitive]),  // Case-insensitive - matches both "Height" and "height"
+                    ("Current Height:\\s*(\\d+)\\s*mm", [.caseInsensitive]),  // Flexible whitespace + case-insensitive
+                    ("Current\\s+Height:\\s*(\\d+)\\s*mm", [.caseInsensitive]),  // Very flexible whitespace + case-insensitive
+                    ("Current[Hh]eight:\\s*(\\d+)\\s*mm", []),  // Explicit case variants
+                    ("[Cc]urrent\\s+[Hh]eight:\\s*(\\d+)\\s*mm", []),  // Both words case variants
                     ("[Hh]eight:\\s*(\\d+)\\s*mm", []),  // Fallback: any "Height: X mm" pattern
                 ]
                 
                 var heightFound = false
-                for config in patternConfigs {
-                    if let regex = try? NSRegularExpression(pattern: config.pattern, options: config.options) {
-                        let nsString = text as NSString
-                        let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
-                        
-                        print("🔎 Pattern '\(config.pattern)' (options: \(config.options)) found \(results.count) matches")
-                        
-                        if let match = results.first, match.numberOfRanges > 1 {
-                            let range = match.range(at: 1)
-                            let heightString = nsString.substring(with: range)
-                            print("📊 Extracted height string: '\(heightString)'")
-                            if let height = Int(heightString) {
-                                print("✅ SUCCESS! Setting height to \(height)mm")
-                                self.currentHeight = height
-                                self.isConnected = true
-                                self.statusMessage = "Connected"
-                                self.statusColor = "#4ade80"
-                                print("✅ UI updated - statusMessage: \(self.statusMessage), height: \(self.currentHeight ?? -1)")
-                                heightFound = true
-                                break
-                            } else {
-                                print("❌ Could not convert '\(heightString)' to Int")
+                // Try patterns on both original and cleaned text
+                let textsToSearch = [text, cleanText]
+                
+                for searchText in textsToSearch {
+                    for config in patternConfigs {
+                        if let regex = try? NSRegularExpression(pattern: config.pattern, options: config.options) {
+                            let nsString = searchText as NSString
+                            let results = regex.matches(in: searchText, options: [], range: NSRange(location: 0, length: nsString.length))
+                            
+                            print("🔎 Pattern '\(config.pattern)' (options: \(config.options)) found \(results.count) matches")
+                            
+                            if let match = results.first, match.numberOfRanges > 1 {
+                                let range = match.range(at: 1)
+                                let heightString = nsString.substring(with: range)
+                                print("📊 Extracted height string: '\(heightString)'")
+                                if let height = Int(heightString) {
+                                    print("✅ SUCCESS! Setting height to \(height)mm")
+                                    // We're on main thread (@MainActor)
+                                    self.objectWillChange.send() // Explicitly trigger UI update
+                                    self.currentHeight = height
+                                    self.isConnected = true
+                                    self.statusMessage = "Connected"
+                                    self.statusColor = "#4ade80"
+                                    print("✅ UI updated - statusMessage: \(self.statusMessage), height: \(self.currentHeight ?? -1)")
+                                    heightFound = true
+                                    break
+                                } else {
+                                    print("❌ Could not convert '\(heightString)' to Int")
+                                }
                             }
                         }
                     }
+                    if heightFound { break }
                 }
                 
                 // If we got here and didn't find height, parsing failed
                 if !heightFound {
                     print("⚠️ Parsing failed - no height found in response")
+                    print("🔍 Full response text:")
+                    print(text)
+                    print("🔍 Cleaned response text:")
+                    print(cleanText)
                     // If we got a valid HTTP response but can't parse height,
                     // we're connected but can't read the height
+                    // We're already on main thread (checked at start of handleResponse)
                     self.isConnected = true
-                    self.statusMessage = "Connected"
-                    self.statusColor = "#4ade80"
+                    self.statusMessage = "Connected (no height)"
+                    self.statusColor = "#fbbf24" // Yellow/orange to indicate partial connection
                     // Clear currentHeight to show "---" in UI
                     // This way user sees they're connected but height isn't available
                     self.currentHeight = nil
