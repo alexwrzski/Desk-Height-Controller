@@ -4,8 +4,9 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
 
 ## Screenshots
 
+### Main Interface
 <div align="center">
-  <img src="screenshots/screenshot.png" alt="Desk Controller Main Interface" width="300">
+  <img src="screenshots/Screenshot 2025-12-23 at 13.23.17.png" alt="Desk Controller Main Interface" width="300">
   <p><em>Main app interface with real-time height display and controls</em></p>
 </div>
 
@@ -117,8 +118,13 @@ Desk Controller - Swift/
 - **Manual Movement**: Enter a specific height (in mm) to move to
 
 <div align="center">
-  <img src="screenshots/Screenshot 2025-12-22 at 22.09.32.png" alt="Desk Controller Settings" width="300">
+  <img src="screenshots/Screenshot 2025-12-23 at 15.57.00.png" alt="Desk Controller Settings" width="300">
   <p><em>Settings view for configuring ESP32 connection, presets, and safety limits</em></p>
+</div>
+
+<div align="center">
+  <img src="screenshots/Screenshot 2025-12-23 at 15.57.09.png" alt="Desk Controller Settings Detail" width="300">
+  <p><em>Settings view showing ESP32 connection and safety limits configuration</em></p>
 </div>
 
 ## Hardware Setup
