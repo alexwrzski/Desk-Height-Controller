@@ -31,11 +31,12 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
 
 ### 2. Start Web App
 
-**Option A: Mac App (Recommended)**
+**Option A: Native Mac App (Recommended)**
 ```bash
-./build_mac_app.sh  # Build the app (first time only)
+pip3 install -r requirements.txt  # Install dependencies (first time only)
+./build_mac_app.sh                 # Build the app
 ```
-Then double-click `Desk Controller.app` to launch. The browser will open automatically.
+Then double-click `Desk Controller.app` to launch. Opens in a native window (not a browser).
 
 **Option A2: DMG Installer (For Distribution)**
 ```bash

@@ -50,29 +50,28 @@ SCRIPT_DIR="$APP_DIR"
 # Change to script directory
 cd "$SCRIPT_DIR"
 
-# Function to open browser
-open_browser() {
-    sleep 2
-    open http://localhost:5000 2>/dev/null || true
-}
+# Find Python with PyQt5 installed
+# Try system Python first, then fall back to python3
+PYTHON_CMD=""
+for py in "/usr/bin/python3" "$(which python3)" "python3"; do
+    if [ -n "$py" ] && $py -c "import PyQt5.QtWidgets" 2>/dev/null; then
+        PYTHON_CMD="$py"
+        break
+    fi
+done
 
-# Open browser in background
-open_browser &
+if [ -z "$PYTHON_CMD" ]; then
+    # Check if any GUI framework is available
+    if ! python3 -c "import PySide6.QtWidgets" 2>/dev/null && \
+       ! python3 -c "import AppKit" 2>/dev/null; then
+        osascript -e 'display dialog "PyQt5 is required. Install with: pip3 install -r requirements.txt" buttons {"OK"} default button "OK" with title "Desk Controller"'
+        exit 1
+    fi
+    PYTHON_CMD=python3
+fi
 
-# Print startup message
-echo "=========================================="
-echo "  Desk Controller"
-echo "=========================================="
-echo ""
-echo "Starting web server..."
-echo "Opening browser at: http://localhost:5000"
-echo ""
-echo "Press Ctrl+C to quit"
-echo "=========================================="
-echo ""
-
-# Run the Flask app
-python3 web_app.py
+# Run the native app
+exec "$PYTHON_CMD" desk_controller_app.py
 EXECUTABLE
 
 # Make executable
