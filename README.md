@@ -6,7 +6,7 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
 
 ### Main Interface
 <div align="center">
-  <img src="screenshots/Screenshot 2025-12-23 at 13.23.17.png" alt="Desk Controller Main Interface" width="300">
+  <img src="screenshots/Main app.png" alt="Desk Controller Main Interface" width="300">
   <p><em>Main app interface with real-time height display and controls</em></p>
 </div>
 
@@ -50,6 +50,11 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
 4. Enter your WiFi credentials and connect
 5. Note the ESP32 IP address shown
 6. Enter this IP in the macOS app Settings → ESP32 IP Address
+
+<div align="center">
+  <img src="screenshots/Controller setup.png" alt="Desk Controller Setup Screen" width="300">
+  <p><em>First-time setup screen for connecting to ESP32</em></p>
+</div>
 
 **Option B: Manual Configuration**
 - If ESP32 already has WiFi credentials saved, it will connect automatically
@@ -118,13 +123,13 @@ Desk Controller - Swift/
 - **Manual Movement**: Enter a specific height (in mm) to move to
 
 <div align="center">
-  <img src="screenshots/Screenshot 2025-12-23 at 15.57.00.png" alt="Desk Controller Settings" width="300">
-  <p><em>Settings view for configuring ESP32 connection, presets, and safety limits</em></p>
+  <img src="screenshots/Settings part 1.png" alt="Desk Controller Settings - Part 1" width="300">
+  <p><em>Settings view showing manual movement, presets, and safety limits</em></p>
 </div>
 
 <div align="center">
-  <img src="screenshots/Screenshot 2025-12-23 at 15.57.09.png" alt="Desk Controller Settings Detail" width="300">
-  <p><em>Settings view showing ESP32 connection and safety limits configuration</em></p>
+  <img src="screenshots/Settings part 2.png" alt="Desk Controller Settings - Part 2" width="300">
+  <p><em>Settings view showing ESP32 connection configuration</em></p>
 </div>
 
 ## Hardware Setup
