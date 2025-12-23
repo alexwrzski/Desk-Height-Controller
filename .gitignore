@@ -57,3 +57,6 @@ web_app_backup.py
 __pycache__/
 *.pyc
 *.pyo
+
+# DMG files
+*.dmg

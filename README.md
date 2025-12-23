@@ -37,6 +37,16 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
 ```
 Then double-click `Desk Controller.app` to launch. The browser will open automatically.
 
+**Option A2: DMG Installer (For Distribution)**
+```bash
+./build_mac_app.sh   # Build the app first
+./build_dmg.sh        # Create DMG installer
+```
+This creates `Desk_Controller.dmg` - a distributable installer that users can:
+1. Double-click to mount
+2. Drag the app to Applications folder
+3. Launch from Applications
+
 **Option B: Command Line**
 ```bash
 ./start_web_app.sh
