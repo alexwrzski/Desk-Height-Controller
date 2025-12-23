@@ -327,33 +327,51 @@ Consider placing ESP32 and relay module in a small enclosure:
 
 ### Firmware Configuration
 
-Edit `DeskController_ESP32/DeskController_ESP32.ino`:
+**No WiFi credentials needed in code!** The ESP32 uses a WiFi Manager with captive portal.
 
+The firmware will:
+- Try to connect to saved WiFi credentials (if any)
+- If no credentials or connection fails, create Access Point: **"DeskController-Setup"**
+- Serve a setup page where you can enter WiFi credentials
+- Save credentials permanently (survives power cycles)
+
+**Optional**: Adjust default limits in `DeskController_ESP32.ino` (lines 23-24):
 ```cpp
-// Update WiFi credentials (line 10-11)
-const char* ssid = "YOUR_WIFI_SSID";      // 2.4GHz only!
-const char* password = "YOUR_WIFI_PASSWORD";
-
-// Adjust default limits if needed (line 17-18)
 int minHeight = 575;   // Minimum desk height in mm
 int maxHeight = 1185;  // Maximum desk height in mm
 ```
 
 **Important**: ESP32 only supports 2.4GHz WiFi networks, not 5GHz!
 
+### WiFi Setup (First Time)
+
+1. **Upload firmware** (see above)
+2. **Connect to ESP32 Access Point**:
+   - Look for WiFi network: **"DeskController-Setup"**
+   - Password: **"setup12345"**
+   - Connect with your phone or computer
+3. **Setup page opens automatically** (captive portal)
+   - If not, open browser to: `http://192.168.4.1/setup`
+4. **Enter your WiFi credentials**:
+   - WiFi Network (SSID): Your 2.4GHz network name
+   - Password: Your WiFi password
+   - Click "Connect to WiFi"
+5. **Note the IP address** shown on success page
+6. **Enter IP in web app** when prompted (or in Settings → ESP32 Connection)
+
 ### Web App Configuration
 
-Edit `web_app.py`:
+**No manual IP configuration needed!** The web app will:
+- Detect if ESP32 is connected
+- Show setup page if disconnected
+- Allow you to enter ESP32 IP address
+- Save IP to browser localStorage (persists across sessions)
 
-```python
-# Update ESP32 IP address (line 11)
-ESP32_IP = "http://192.168.0.194"  # Replace with your ESP32's IP
-```
-
-To find ESP32 IP address:
-1. Upload firmware
-2. Open serial monitor: `arduino-cli monitor -p /dev/cu.usbserial-0001 -c baudrate=115200`
-3. Look for: `IP address: 192.168.x.x`
+You can also configure IP address in Settings → ESP32 Connection:
+- View current IP
+- Change IP address
+- Test connection
+- Reset WiFi (restarts ESP32 in setup mode)
 
 ### Upload Firmware
 
@@ -375,7 +393,10 @@ Then open browser to `http://localhost:5000`
 
 ### Initial Setup
 
-1. **Find ESP32 IP Address**:
+1. **Connect to ESP32**:
+   - If first time: Follow WiFi Setup steps above
+   - If already configured: ESP32 should connect automatically
+   - Find IP address in router admin, serial monitor, or web app Settings
    - Check serial monitor after upload
    - Or check your router's connected devices list
 
@@ -447,12 +468,14 @@ This 10mm buffer prevents overshoot.
 **Symptoms**: Browser shows "Connecting..." or connection error
 
 **Solutions**:
-1. Verify ESP32 IP address in `web_app.py` is correct
-2. Check ESP32 and computer are on same WiFi network
-3. Ping ESP32: `ping 192.168.0.194` (use your ESP32 IP)
-4. Check ESP32 serial monitor - should show "Server started"
-5. Verify web app is running: `./start_web_app.sh`
-6. Try accessing ESP32 directly: `http://192.168.0.194/status`
+1. Check ESP32 IP address in Settings → ESP32 Connection
+2. Use "Test Connection" button to verify connectivity
+3. If disconnected, web app will show setup page automatically
+4. Check ESP32 and computer are on same WiFi network
+5. Ping ESP32: `ping 192.168.x.x` (use your ESP32 IP)
+6. Check ESP32 serial monitor - should show "Server started"
+7. Verify web app is running: `./start_web_app.sh`
+8. Try accessing ESP32 directly: `http://192.168.x.x/status`
 
 ### Desk Stops Before Reaching Target
 
@@ -481,18 +504,35 @@ This 10mm buffer prevents overshoot.
 
 **Solutions**:
 1. **Most common**: ESP32 only supports 2.4GHz WiFi, not 5GHz
-2. Verify SSID and password are correct (case-sensitive)
-3. Check WiFi signal strength (move ESP32 closer to router)
-4. Check router settings (some routers block new devices)
-5. Look at serial monitor for connection status messages
+   - Make sure you're connecting to a 2.4GHz network
+   - Many routers have separate 2.4GHz and 5GHz networks
+2. **Can't find "DeskController-Setup" network**:
+   - Check serial monitor for errors
+   - Try resetting ESP32 (press reset button)
+   - Use "Reset WiFi" in web app Settings if connected
+3. **Setup page not opening automatically**:
+   - Make sure you're connected to "DeskController-Setup" WiFi
+   - Open any browser - captive portal should trigger
+   - Or manually navigate to `http://192.168.4.1/setup`
+4. **WiFi connection fails after entering credentials**:
+   - Verify SSID and password are correct (case-sensitive)
+   - Check WiFi signal strength (move ESP32 closer to router)
+   - Some routers block new devices - check router settings
+   - Ensure network is 2.4GHz (not 5GHz)
+5. **ESP32 keeps disconnecting**:
+   - Check WiFi signal strength
+   - Verify router allows device connections
+   - ESP32 will auto-reconnect every 10 seconds if disconnected
 
 ## LED Status Guide
 
 The ESP32 status LED indicates system state:
 
-- **Solid ON**: Connected to WiFi, server running, ready
+- **3 Quick Blinks**: Startup/Initialization
 - **Fast Blink**: Connecting to WiFi
-- **Slow Blink**: WiFi disconnected, attempting reconnect
+- **Solid ON**: Connected to WiFi, server running, ready
+- **Slow Blink (1 second)**: Access Point mode (WiFi setup mode)
+- **Fast Blink (200ms)**: WiFi disconnected, attempting reconnect
 - **OFF**: WiFi connection failed or ESP32 not powered
 
 See [LED_STATUS_GUIDE.md](LED_STATUS_GUIDE.md) for more details.

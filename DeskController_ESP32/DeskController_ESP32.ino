@@ -1,16 +1,24 @@
 #include <WiFi.h>
 #include <Adafruit_VL53L0X.h>
+#include <Preferences.h>
+#include <DNSServer.h>
 
 #define UP_PIN 16    // GPIO 16 - Connected to relay for UP
 #define DOWN_PIN 17  // GPIO 17 - Connected to relay for DOWN
 #define STATUS_LED 4  // Status LED pin (use GPIO 4, or change to your board's built-in LED pin)
 
-// Wi-Fi credentials
-// NOTE: ESP32 only supports 2.4GHz WiFi!
-const char* ssid = "YOUR_WIFI";  // 2.4GHz network
-const char* password = "YOU_PASSWORD";
+// WiFi Manager - Access Point credentials for setup
+const char* ap_ssid = "DeskController-Setup";
+const char* ap_password = "setup12345";  // Password for setup AP (8+ chars required)
+
+Preferences preferences;
+String saved_ssid = "";
+String saved_password = "";
+bool wifi_configured = false;
+bool ap_mode = false;
 
 WiFiServer server(80);
+DNSServer dnsServer;
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 
 int presetHeights[3] = {300, 600, 900};  // Preset heights in mm
@@ -28,6 +36,34 @@ int lastValidHeight = 0;  // Last valid height reading (for filtering)
 int lastMovementHeight = 0;  // Height when last movement check occurred (for detecting stalled movement)
 unsigned long lastHeightChangeTime = 0;  // When height last changed significantly
 int stableHeightCount = 0;  // Count of times height has been stable
+
+// Function to connect to WiFi
+bool connectToWiFi(String ssid, String password) {
+  Serial.print("Connecting to Wi-Fi: ");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid.c_str(), password.c_str());
+  
+  int wifi_timeout = 30; // 30 second timeout
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < wifi_timeout) {
+    delay(1000);
+    Serial.print(".");
+    // Fast blink LED while connecting
+    digitalWrite(STATUS_LED, HIGH);
+    delay(50);
+    digitalWrite(STATUS_LED, LOW);
+    attempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✓ Connected!");
+    return true;
+  } else {
+    Serial.println("\n✗ Connection failed!");
+    return false;
+  }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -57,22 +93,59 @@ void setup() {
     Serial.println("VL53L0X sensor initialized successfully!");
   }
 
-  // Connect to Wi-Fi with timeout
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to Wi-Fi");
-  int wifi_timeout = 30; // 30 second timeout
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < wifi_timeout) {
-    delay(1000);
-    Serial.print(".");
-    // Fast blink LED while connecting
-    digitalWrite(STATUS_LED, HIGH);
-    delay(50);
-    digitalWrite(STATUS_LED, LOW);
-    attempts++;
+  // Initialize Preferences for storing WiFi credentials
+  preferences.begin("wifi", false);
+  saved_ssid = preferences.getString("ssid", "");
+  saved_password = preferences.getString("password", "");
+  preferences.end();
+
+  // Try to connect to saved WiFi credentials
+  if (saved_ssid.length() > 0) {
+    Serial.println("Found saved WiFi credentials, attempting to connect...");
+    Serial.println("SSID: " + saved_ssid);
+    wifi_configured = connectToWiFi(saved_ssid, saved_password);
   }
-  
-  if (WiFi.status() == WL_CONNECTED) {
+
+  // If connection failed, start Access Point mode for setup
+  if (!wifi_configured) {
+    Serial.println("\n=== WiFi Setup Mode ===");
+    Serial.println("Starting Access Point for WiFi configuration...");
+    Serial.print("AP SSID: ");
+    Serial.println(ap_ssid);
+    Serial.print("AP Password: ");
+    Serial.println(ap_password);
+    Serial.println("\nConnect to this network and open: http://192.168.4.1");
+    
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(ap_ssid, ap_password);
+    
+    // Configure AP IP address
+    IPAddress local_IP(192, 168, 4, 1);
+    IPAddress gateway(192, 168, 4, 1);
+    IPAddress subnet(255, 255, 255, 0);
+    WiFi.softAPConfig(local_IP, gateway, subnet);
+    
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("AP IP address: ");
+    Serial.println(IP);
+    
+    // Start DNS server for captive portal (redirects all domains to our IP)
+    dnsServer.start(53, "*", local_IP);  // Port 53, redirect all domains (*) to our IP
+    Serial.println("✓ DNS server started (captive portal active)");
+    Serial.println("✓ Connecting devices will automatically open setup page in browser");
+    
+    ap_mode = true;
+    server.begin();
+    server_started = true;
+    
+    Serial.println("✓ Captive portal ready! Connecting devices will automatically open setup page.");
+    
+    // Slow blink LED in AP mode
+    digitalWrite(STATUS_LED, HIGH);
+    delay(500);
+    digitalWrite(STATUS_LED, LOW);
+  } else {
+    // WiFi connected successfully
     Serial.println("\n✓ Connected to Wi-Fi!");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
@@ -91,63 +164,69 @@ void setup() {
     
     // Solid LED = Ready
     digitalWrite(STATUS_LED, HIGH);
-  } else {
-    Serial.println("\n✗ ERROR: Failed to connect to Wi-Fi!");
-    Serial.println("Possible reasons:");
-    Serial.println("  1. Wrong WiFi password");
-    Serial.println("  2. Network is 5GHz only (ESP32 only supports 2.4GHz!)");
-    Serial.println("  3. Network not in range");
-    Serial.println("  4. Router not allowing new connections");
-    Serial.println("\nIMPORTANT: ESP32 only supports 2.4GHz WiFi networks!");
-    Serial.println("Current network: 'Free WiFi' (should be 2.4GHz)");
-    Serial.println("\nThe ESP32 will continue to retry...");
-    Serial.println("Server will start automatically when WiFi connects.");
-    // LED off = Error
-    digitalWrite(STATUS_LED, LOW);
   }
 }
 
 void loop() {
-  // Only process if WiFi is connected
-  if (WiFi.status() != WL_CONNECTED) {
-    // LED off when disconnected
-    digitalWrite(STATUS_LED, LOW);
-    
-    // Try to reconnect
-    static unsigned long lastReconnectAttempt = 0;
-    if (millis() - lastReconnectAttempt > 10000) {  // Try every 10 seconds
-      lastReconnectAttempt = millis();
-      Serial.println("WiFi disconnected. Attempting to reconnect...");
-      WiFi.disconnect();
-      delay(100);
-      WiFi.begin(ssid, password);
-      server_started = false;  // Reset server flag
+  // If in AP mode, handle setup requests (don't try to reconnect)
+  if (ap_mode) {
+    // Process DNS requests for captive portal (throttled to avoid lag)
+    static unsigned long lastDNSProcess = 0;
+    if (millis() - lastDNSProcess > 50) {  // Process DNS every 50ms max
+      dnsServer.processNextRequest();
+      lastDNSProcess = millis();
     }
     
-    // Fast blink while trying to reconnect
+    // Slow blink LED in AP mode
     static unsigned long lastBlink = 0;
-    if (millis() - lastBlink > 200) {
+    if (millis() - lastBlink > 1000) {
       lastBlink = millis();
       digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
     }
+  } else {
+    // Normal mode: Only process if WiFi is connected
+    if (WiFi.status() != WL_CONNECTED) {
+      // LED off when disconnected
+      digitalWrite(STATUS_LED, LOW);
+      
+      // Try to reconnect using saved credentials
+      static unsigned long lastReconnectAttempt = 0;
+      if (millis() - lastReconnectAttempt > 10000) {  // Try every 10 seconds
+        lastReconnectAttempt = millis();
+        Serial.println("WiFi disconnected. Attempting to reconnect...");
+        if (saved_ssid.length() > 0) {
+          WiFi.disconnect();
+          delay(100);
+          connectToWiFi(saved_ssid, saved_password);
+        }
+        server_started = false;  // Reset server flag
+      }
+      
+      // Fast blink while trying to reconnect
+      static unsigned long lastBlink = 0;
+      if (millis() - lastBlink > 200) {
+        lastBlink = millis();
+        digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+      }
+      
+      delay(100);
+      return;
+    }
     
-    delay(100);
-    return;
-  }
-  
-  // If WiFi is connected but server hasn't started, start it now
-  if (WiFi.status() == WL_CONNECTED && !server_started) {
-    Serial.println("WiFi connected! Starting HTTP server...");
-    server.begin();
-    server_started = true;
-    Serial.println("✓ HTTP server started on port 80");
-    Serial.println("✓ Ready to receive commands!");
-    Serial.print("Try: http://");
-    Serial.print(WiFi.localIP());
-    Serial.println("/stop");
-    
-    // Solid LED = Ready
-    digitalWrite(STATUS_LED, HIGH);
+    // If WiFi is connected but server hasn't started, start it now
+    if (WiFi.status() == WL_CONNECTED && !server_started) {
+      Serial.println("WiFi connected! Starting HTTP server...");
+      server.begin();
+      server_started = true;
+      Serial.println("✓ HTTP server started on port 80");
+      Serial.println("✓ Ready to receive commands!");
+      Serial.print("Try: http://");
+      Serial.print(WiFi.localIP());
+      Serial.println("/stop");
+      
+      // Solid LED = Ready
+      digitalWrite(STATUS_LED, HIGH);
+    }
   }
   
   // Update current height periodically (only if sensor is available)
@@ -203,19 +282,35 @@ void loop() {
       // Update last valid height for comparison (but don't filter - trust sensor readings)
       lastValidHeight = currentHeight;
       
-      // Safety check: Stop immediately if we've exceeded limits (with buffer to prevent overshoot)
+      // Safety check: Only stop if we're at limit AND trying to go further in wrong direction
+      // Allow movement back into safe zone even if currently outside limits
+      bool shouldStopAtLimit = false;
+      
       if (filteredHeight <= minHeight + 10) {
-        // At or below minimum + buffer - emergency stop (prevents overshoot going down)
-        Serial.println("EMERGENCY STOP: Below minimum height limit!");
-        moveDesk("stop");
-        targetHeight = -1;
-        movementStartTime = 0;
-        consecutiveValidReadings = 0;
-        stableHeightCount = 0;
-        lastMovementHeight = filteredHeight;
+        // At or below minimum + buffer
+        // Only stop if trying to go down (further below limit)
+        if (targetHeight >= 0 && filteredHeight > targetHeight) {
+          // Trying to go down when already at/below minimum - stop
+          Serial.println("EMERGENCY STOP: At minimum limit, cannot go down further!");
+          shouldStopAtLimit = true;
+        } else {
+          // At minimum but target is up or we're moving up - allow movement
+          Serial.println("At minimum limit, but moving toward safe zone - allowing movement");
+        }
       } else if (filteredHeight >= maxHeight - 10) {
-        // At or above maximum - buffer - emergency stop (prevents overshoot going up)
-        Serial.println("EMERGENCY STOP: Above maximum height limit!");
+        // At or above maximum - buffer
+        // Only stop if trying to go up (further above limit)
+        if (targetHeight >= 0 && filteredHeight < targetHeight) {
+          // Trying to go up when already at/above maximum - stop
+          Serial.println("EMERGENCY STOP: At maximum limit, cannot go up further!");
+          shouldStopAtLimit = true;
+        } else {
+          // At maximum but target is down or we're moving down - allow movement
+          Serial.println("At maximum limit, but moving toward safe zone - allowing movement");
+        }
+      }
+      
+      if (shouldStopAtLimit) {
         moveDesk("stop");
         targetHeight = -1;
         movementStartTime = 0;
@@ -283,14 +378,39 @@ void loop() {
               stableHeightCount = 0;
               lastMovementHeight = filteredHeight;
             } else {
-              // Keep moving but we're getting close - respect limits
-              if (filteredHeight < targetHeight - 5 && filteredHeight < maxHeight - 20) {
+              // Keep moving but we're getting close
+              // Allow movement toward target even if outside limits (moving back into safe zone)
+              bool canMoveUp = filteredHeight < targetHeight - 5;
+              bool canMoveDown = filteredHeight > targetHeight + 5;
+              
+              // Only block movement if we're at limit AND trying to go further in wrong direction
+              if (filteredHeight >= maxHeight - 10 && canMoveUp) {
+                // At max limit and trying to go up - block
+                Serial.println("STOPPED: At maximum limit, cannot go up");
+                moveDesk("stop");
+                targetHeight = -1;
+                movementStartTime = 0;
+                consecutiveValidReadings = 0;
+                stableHeightCount = 0;
+                lastMovementHeight = filteredHeight;
+              } else if (filteredHeight <= minHeight + 10 && canMoveDown) {
+                // At min limit and trying to go down - block
+                Serial.println("STOPPED: At minimum limit, cannot go down");
+                moveDesk("stop");
+                targetHeight = -1;
+                movementStartTime = 0;
+                consecutiveValidReadings = 0;
+                stableHeightCount = 0;
+                lastMovementHeight = filteredHeight;
+              } else if (canMoveUp) {
+                // Safe to move up (either not at limit, or moving toward safe zone)
                 moveDesk("up");
-              } else if (filteredHeight > targetHeight + 5 && filteredHeight > minHeight + 20) {
+              } else if (canMoveDown) {
+                // Safe to move down (either not at limit, or moving toward safe zone)
                 moveDesk("down");
               } else {
-                // At limit or very close to target, stop
-                Serial.println("STOPPED: At limit or very close to target");
+                // Very close to target, stop
+                Serial.println("STOPPED: Very close to target");
                 moveDesk("stop");
                 targetHeight = -1;
                 movementStartTime = 0;
@@ -300,15 +420,40 @@ void loop() {
               }
             }
           } else {
-            // Not at target yet, reset counter and continue moving - but respect limits
+            // Not at target yet, reset counter and continue moving
             consecutiveValidReadings = 0;
-            if (filteredHeight < targetHeight - 15 && filteredHeight < maxHeight - 20) {
+            
+            bool canMoveUp = filteredHeight < targetHeight - 15;
+            bool canMoveDown = filteredHeight > targetHeight + 15;
+            
+            // Only block movement if we're at limit AND trying to go further in wrong direction
+            if (filteredHeight >= maxHeight - 10 && canMoveUp) {
+              // At max limit and trying to go up - block
+              Serial.println("STOPPED: At maximum limit, cannot go up");
+              moveDesk("stop");
+              targetHeight = -1;
+              movementStartTime = 0;
+              consecutiveValidReadings = 0;
+              stableHeightCount = 0;
+              lastMovementHeight = filteredHeight;
+            } else if (filteredHeight <= minHeight + 10 && canMoveDown) {
+              // At min limit and trying to go down - block
+              Serial.println("STOPPED: At minimum limit, cannot go down");
+              moveDesk("stop");
+              targetHeight = -1;
+              movementStartTime = 0;
+              consecutiveValidReadings = 0;
+              stableHeightCount = 0;
+              lastMovementHeight = filteredHeight;
+            } else if (canMoveUp) {
+              // Safe to move up (either not at limit, or moving toward safe zone)
               moveDesk("up");
-            } else if (filteredHeight > targetHeight + 15 && filteredHeight > minHeight + 20) {
+            } else if (canMoveDown) {
+              // Safe to move down (either not at limit, or moving toward safe zone)
               moveDesk("down");
             } else {
-              // At limit, stop
-              Serial.println("STOPPED: Would exceed limits");
+              // Shouldn't happen, but stop just in case
+              Serial.println("STOPPED: Unexpected condition");
               moveDesk("stop");
               targetHeight = -1;
               movementStartTime = 0;
@@ -352,15 +497,6 @@ void loop() {
     request.trim();
     Serial.println("Received: " + request);
     
-    // Read and discard remaining headers (until blank line)
-    while (client.available()) {
-      String line = client.readStringUntil('\n');
-      line.trim();
-      if (line.length() == 0) {
-        break; // End of headers
-      }
-    }
-    
     // Handle CORS preflight requests (OPTIONS)
     if (request.startsWith("OPTIONS")) {
       client.println("HTTP/1.1 200 OK");
@@ -398,6 +534,200 @@ void loop() {
     command.replace("%26", "&");
     
     Serial.println("Parsed command: " + command);
+    
+    // Read headers and find Content-Length for POST requests
+    int contentLength = 0;
+    while (client.available()) {
+      String line = client.readStringUntil('\n');
+      line.trim();
+      if (line.length() == 0) {
+        break; // End of headers
+      }
+      // Check for Content-Length header
+      if (line.startsWith("Content-Length:")) {
+        contentLength = line.substring(15).toInt();
+      }
+    }
+    
+    // Handle captive portal detection requests (iOS, Android, Windows)
+    // These devices check specific URLs to detect captive portals
+    if (ap_mode && (
+        command == "generate_204" ||  // Android captive portal check
+        command == "gen_204" ||        // Alternative Android check
+        command == "hotspot-detect.html" ||  // iOS captive portal check
+        command == "library/test/success.html" ||  // Windows captive portal check
+        command == "kindle-wifi/wifiredirect.html" ||  // Kindle check
+        command == "success.txt" ||  // Some Android variants
+        command == "ncsi.txt" ||  // Windows Network Connectivity Status Indicator
+        command == "connecttest.txt" ||  // Windows 10
+        command == "redirect" ||  // Generic redirect
+        command == "canonical.html" ||  // iOS
+        command == "success.html"  // Generic success page
+      )) {
+      // Redirect to setup page
+      client.println("HTTP/1.1 302 Found");
+      client.println("Location: http://192.168.4.1/setup");
+      client.println("Connection: close");
+      client.println();
+      client.stop();
+      return;
+    }
+    
+    // Handle WiFi setup page (only in AP mode or when requested)
+    // In AP mode, redirect root (/) to setup page for captive portal
+    if (command == "setup" || (ap_mode && command == "")) {
+      // If in AP mode and accessing root, redirect to /setup (use relative URL to avoid loops)
+      if (ap_mode && command == "") {
+        client.println("HTTP/1.1 302 Found");
+        client.println("Location: /setup");
+        client.println("Connection: close");
+        client.println();
+        client.stop();
+        return;
+      }
+      
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-Type: text/html");
+      client.println("Cache-Control: no-cache, no-store, must-revalidate");
+      client.println("Pragma: no-cache");
+      client.println("Expires: 0");
+      client.println("Connection: close");
+      client.println();
+      client.println("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+      client.println("<title>Desk Controller WiFi Setup</title>");
+      client.println("<style>body{font-family:Arial,sans-serif;background:#1a1a1a;color:#fff;padding:20px;max-width:400px;margin:0 auto;}");
+      client.println("h1{color:#3b82f6;}input{width:100%;padding:10px;margin:10px 0;border:1px solid #444;border-radius:6px;background:#111;color:#fff;box-sizing:border-box;}");
+      client.println("button{width:100%;padding:12px;background:#3b82f6;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;margin-top:10px;}");
+      client.println("button:hover{background:#2563eb;}.status{background:#262626;padding:15px;border-radius:6px;margin:10px 0;}</style></head><body>");
+      client.println("<h1>Desk Controller WiFi Setup</h1>");
+      client.println("<p>Enter your WiFi network credentials:</p>");
+      client.println("<form method='POST' action='/savewifi'>");
+      client.println("<label>WiFi Network (SSID):</label>");
+      client.println("<input type='text' name='ssid' required placeholder='Your WiFi Network Name'>");
+      client.println("<label>Password:</label>");
+      client.println("<input type='password' name='password' required placeholder='WiFi Password'>");
+      client.println("<p style='font-size:12px;color:#888;'>Note: ESP32 only supports 2.4GHz WiFi networks</p>");
+      client.println("<button type='submit'>Connect to WiFi</button>");
+      client.println("</form></body></html>");
+      client.stop();
+      return;
+    }
+    
+    // Handle save WiFi credentials
+    if (command == "savewifi" && request.startsWith("POST")) {
+      // Read POST data
+      String postData = "";
+      if (contentLength > 0) {
+        for (int i = 0; i < contentLength && client.available(); i++) {
+          postData += (char)client.read();
+        }
+      }
+      
+      // Parse SSID and password from POST data
+      String new_ssid = "";
+      String new_password = "";
+      
+      int ssidIndex = postData.indexOf("ssid=");
+      int passIndex = postData.indexOf("password=");
+      
+      if (ssidIndex >= 0) {
+        int ssidEnd = postData.indexOf("&", ssidIndex);
+        if (ssidEnd < 0) ssidEnd = postData.length();
+        new_ssid = postData.substring(ssidIndex + 5, ssidEnd);
+        new_ssid.replace("+", " ");
+        // URL decode
+        new_ssid.replace("%20", " ");
+        new_ssid.replace("%2B", "+");
+      }
+      
+      if (passIndex >= 0) {
+        int passEnd = postData.indexOf("&", passIndex);
+        if (passEnd < 0) passEnd = postData.length();
+        new_password = postData.substring(passIndex + 9, passEnd);
+        new_password.replace("+", " ");
+        // URL decode
+        new_password.replace("%20", " ");
+        new_password.replace("%2B", "+");
+      }
+      
+      if (new_ssid.length() > 0) {
+        // Save to Preferences
+        preferences.begin("wifi", false);
+        preferences.putString("ssid", new_ssid);
+        preferences.putString("password", new_password);
+        preferences.end();
+        
+        Serial.println("WiFi credentials saved. Attempting to connect...");
+        
+        // Try to connect
+        if (connectToWiFi(new_ssid, new_password)) {
+          ap_mode = false;
+          saved_ssid = new_ssid;
+          saved_password = new_password;
+          
+          client.println("HTTP/1.1 200 OK");
+          client.println("Content-Type: text/html");
+          client.println("Connection: close");
+          client.println();
+          client.println("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+          client.println("<title>WiFi Connected</title>");
+          client.println("<style>body{font-family:Arial,sans-serif;background:#1a1a1a;color:#fff;padding:20px;max-width:400px;margin:0 auto;text-align:center;}");
+          client.println("h1{color:#4ade80;}.status{background:#262626;padding:20px;border-radius:6px;margin:20px 0;}</style></head><body>");
+          client.println("<h1>✓ WiFi Connected!</h1>");
+          client.println("<div class='status'>");
+          client.println("<p><strong>IP Address:</strong><br>" + WiFi.localIP().toString() + "</p>");
+          client.println("<p>Your desk controller is now connected to your network.</p>");
+          client.println("<p>You can close this page and use the desk controller app.</p>");
+          client.println("</div></body></html>");
+        } else {
+          client.println("HTTP/1.1 200 OK");
+          client.println("Content-Type: text/html");
+          client.println("Connection: close");
+          client.println();
+          client.println("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+          client.println("<title>Connection Failed</title>");
+          client.println("<style>body{font-family:Arial,sans-serif;background:#1a1a1a;color:#fff;padding:20px;max-width:400px;margin:0 auto;text-align:center;}");
+          client.println("h1{color:#f87171;}.status{background:#422;padding:20px;border-radius:6px;margin:20px 0;}</style></head><body>");
+          client.println("<h1>✗ Connection Failed</h1>");
+          client.println("<div class='status'>");
+          client.println("<p>Could not connect to WiFi. Please check:</p>");
+          client.println("<ul style='text-align:left;'>");
+          client.println("<li>WiFi password is correct</li>");
+          client.println("<li>Network is 2.4GHz (ESP32 doesn't support 5GHz)</li>");
+          client.println("<li>Network is in range</li>");
+          client.println("</ul>");
+          client.println("<p><a href='/setup' style='color:#3b82f6;'>Try Again</a></p>");
+          client.println("</div></body></html>");
+        }
+      } else {
+        client.println("HTTP/1.1 400 Bad Request");
+        client.println("Content-Type: text/plain");
+        client.println("Connection: close");
+        client.println();
+        client.println("Invalid request");
+      }
+      client.stop();
+      return;
+    }
+    
+    // Handle reset WiFi (clears saved credentials and restarts in AP mode)
+    if (command == "resetwifi") {
+      preferences.begin("wifi", false);
+      preferences.clear();
+      preferences.end();
+      
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-Type: text/plain");
+      client.println("Access-Control-Allow-Origin: *");
+      client.println("Connection: close");
+      client.println();
+      client.println("WiFi credentials cleared. ESP32 will restart in setup mode.");
+      client.stop();
+      
+      delay(1000);
+      ESP.restart();
+      return;
+    }
     
     // Send HTTP response headers with CORS support for web app
     client.println("HTTP/1.1 200 OK");
@@ -458,6 +788,11 @@ void loop() {
           stableHeightCount = 0;  // Reset stable height counter
           lastValidHeight = currentHeight;  // Initialize filtered height
           lastMovementHeight = currentHeight;  // Initialize movement tracking
+          Serial.println("=== PRESET MOVEMENT START ===");
+          Serial.println("Preset: " + String(preset));
+          Serial.println("Target Height: " + String(presetHeights[preset]) + " mm");
+          Serial.println("Current Height: " + String(currentHeight) + " mm");
+          Serial.println("Min Limit: " + String(minHeight) + " mm, Max Limit: " + String(maxHeight) + " mm");
           client.println("Moving to preset " + String(preset) + ": " + String(presetHeights[preset]) + " mm");
           client.println("Current: " + String(currentHeight) + " mm, Target: " + String(targetHeight) + " mm");
           client.println("Use /stop to cancel movement");
@@ -473,12 +808,20 @@ void loop() {
       if (spaceIndex > 0) {
         int preset = command.substring(3, spaceIndex).toInt();
         int newHeight = command.substring(spaceIndex + 1).toInt();
-        if (preset >= 0 && preset < 3 && newHeight >= minHeight && newHeight <= maxHeight) {
-          presetHeights[preset] = newHeight;
-          client.println("Preset " + String(preset) + " updated to " + String(newHeight) + " mm");
+        if (preset >= 0 && preset < 3) {
+          // Allow presets slightly outside limits (with tolerance) for flexibility
+          // This allows recovery if desk is outside limits
+          if (newHeight >= (minHeight - 50) && newHeight <= (maxHeight + 50)) {
+            presetHeights[preset] = newHeight;
+            client.println("Preset " + String(preset) + " updated to " + String(newHeight) + " mm");
+            Serial.println("Preset " + String(preset) + " saved: " + String(newHeight) + " mm");
+          } else {
+            client.println("Invalid preset height");
+            client.println("Height should be between " + String(minHeight - 50) + " and " + String(maxHeight + 50) + " mm");
+            Serial.println("Preset save rejected: " + String(newHeight) + " mm (outside acceptable range)");
+          }
         } else {
-          client.println("Invalid preset or height");
-          client.println("Height must be between " + String(minHeight) + " and " + String(maxHeight) + " mm");
+          client.println("Invalid preset number (must be 0, 1, or 2)");
         }
       } else {
         client.println("Invalid set command format");
@@ -546,6 +889,7 @@ void loop() {
       client.println("Sensor: " + String(sensor_available ? "Available" : "Not Available"));
       client.println("Current Height: " + String(currentHeight) + " mm");
       client.println("Height Limits: " + String(minHeight) + " - " + String(maxHeight) + " mm");
+      client.println("Presets: 0=" + String(presetHeights[0]) + "mm, 1=" + String(presetHeights[1]) + "mm, 2=" + String(presetHeights[2]) + "mm");
 
     } else {
       client.println("Unknown command: " + command);

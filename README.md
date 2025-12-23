@@ -19,6 +19,8 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
   - Manual height input
 - 🔧 **Non-blocking Movement**: Stop preset movements at any time
 - 📊 **Smart Movement Detection**: Automatically stops when desk hits physical limits
+- 📶 **WiFi Manager**: Easy setup with captive portal - no code editing required!
+- 🔄 **Auto-Reconnect**: Automatically reconnects if WiFi drops
 
 ## Quick Start
 
@@ -34,10 +36,25 @@ A smart WiFi-enabled controller for IKEA electric standing desks that adds preci
 
 Then open your browser to `http://localhost:5000`
 
-### 3. Configure
-- Update WiFi credentials in `DeskController_ESP32.ino` (lines 10-11)
-- Update ESP32 IP address in `web_app.py` (line 11)
-- Adjust min/max height limits in the Settings page
+### 3. Configure WiFi (First Time Only)
+
+**Option A: Automatic Setup (Recommended)**
+1. ESP32 will create WiFi network: **"DeskController-Setup"**
+2. Connect your phone/computer to this network (password: `setup12345`)
+3. Setup page opens automatically in browser
+4. Enter your WiFi credentials and connect
+5. Note the ESP32 IP address shown
+6. Enter this IP in the web app when prompted
+
+**Option B: Manual Configuration**
+- If ESP32 already has WiFi credentials saved, it will connect automatically
+- Find ESP32 IP address in router admin or serial monitor
+- Enter IP in web app Settings → ESP32 Connection
+
+### 4. Adjust Settings
+- Configure min/max height limits in Settings page
+- Add/edit preset positions
+- Change ESP32 IP address if needed (Settings → ESP32 Connection)
 
 ## Project Structure
 
@@ -74,6 +91,7 @@ Click any preset button to move to that saved height. You can stop the movement 
 - **Manual Movement**: Enter a specific height (in mm) to move to
 - **Manage Presets**: Add, edit, or remove preset positions
 - **Safety Limits**: Configure min/max height boundaries
+- **ESP32 Connection**: Configure WiFi IP address, test connection, reset WiFi
 
 ## Safety Features
 
@@ -101,9 +119,24 @@ For detailed hardware setup, wiring diagrams, and parts list, see [SETUP_GUIDE.m
 - Verify sensor is within range (VL53L0X range: ~30-2000mm)
 
 ### Can't connect to web app
-- Verify ESP32 IP address in `web_app.py`
-- Check that ESP32 and computer are on same network
+- Check ESP32 IP address in Settings → ESP32 Connection
+- Use "Test Connection" button to verify connectivity
+- If disconnected, web app will show setup page automatically
+- Ensure ESP32 and computer are on same network
 - Ensure web app is running (`./start_web_app.sh`)
+
+### WiFi Setup Issues
+- **ESP32 not creating "DeskController-Setup" network**: 
+  - Check serial monitor for errors
+  - Try resetting ESP32 or use "Reset WiFi" in Settings
+- **Can't access setup page**: 
+  - Connect to "DeskController-Setup" WiFi first
+  - Open any browser - setup page should open automatically
+  - Or manually navigate to `http://192.168.4.1/setup`
+- **WiFi connection fails**: 
+  - Ensure network is 2.4GHz (ESP32 doesn't support 5GHz)
+  - Check password is correct
+  - Verify network is in range
 
 ## License
 

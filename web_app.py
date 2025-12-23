@@ -7,8 +7,9 @@ from flask import Flask, render_template_string
 
 app = Flask(__name__)
 
-# ESP32 configuration
-ESP32_IP = "http://192.168.0.194"
+# ESP32 configuration - will be loaded from localStorage in the frontend
+# This is just a default fallback
+ESP32_IP_DEFAULT = "http://192.168.4.1"  # Default to AP mode IP
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -161,14 +162,33 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <div class="card">
+            <span class="section-title">ESP32 Connection</span>
+            <div style="margin-bottom:10px;">
+                <label style="font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px;">ESP32 IP Address</label>
+                <input type="text" id="esp32-ip-input" value="" placeholder="http://192.168.1.100" style="background:#111; border:1px solid #444; color:white; padding:8px; border-radius:6px; width:100%; box-sizing:border-box;">
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button onclick="testConnection()" style="flex:1; background:#333; color:white; padding:8px; border-radius:6px; height:36px;">Test Connection</button>
+                <button onclick="saveESP32IP()" style="flex:1; background:var(--accent-blue); color:white; padding:8px; border-radius:6px; height:36px;">Save IP</button>
+            </div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:8px;" id="connection-status">Status: Checking...</div>
+            <div style="margin-top:10px;">
+                <button onclick="resetESP32WiFi()" style="width:100%; background:#422; color:#f87171; padding:8px; border-radius:6px; height:36px; font-size:12px;">Reset WiFi (Restart Setup Mode)</button>
+            </div>
+        </div>
+
         <button class="save-btn" onclick="saveSettingsWithValidation()">Save All Changes</button>
     </div>
 </div>
 
 <script>
-    // Version: 2.1 - Preset validation with explicit blocking
-    console.log('[OK] Desk Controller JavaScript v2.1 loaded at', new Date().toISOString());
-    const ESP32_IP = '{{ esp32_ip }}';
+    // Version: 3.0 - WiFi Manager with connection detection
+    console.log('[OK] Desk Controller JavaScript v3.0 loaded at', new Date().toISOString());
+    
+    // Load ESP32 IP from localStorage or use default
+    let ESP32_IP = localStorage.getItem('esp32_ip') || '{{ esp32_ip }}';
+    let isConnected = false;
     let moveInterval = null;
 
     // Load presets from LocalStorage or Defaults
@@ -178,9 +198,115 @@ HTML_TEMPLATE = """
         { name: 'Focus', height: 850 }
     ];
 
+    // Load ESP32 IP on startup
+    function loadESP32IP() {
+        const savedIP = localStorage.getItem('esp32_ip');
+        if (savedIP) {
+            ESP32_IP = savedIP;
+        }
+        document.getElementById('esp32-ip-input').value = ESP32_IP;
+        updateConnectionStatus();
+    }
+
+    // Test connection to ESP32
+    async function testConnection() {
+        const ipInput = document.getElementById('esp32-ip-input');
+        const testIP = ipInput ? ipInput.value.trim() || ESP32_IP : ESP32_IP;
+        const statusDiv = document.getElementById('connection-status');
+        
+        if (statusDiv) {
+            statusDiv.textContent = 'Status: Testing connection...';
+            statusDiv.style.color = 'var(--text-dim)';
+        }
+        
+        try {
+            const response = await fetch(`${testIP}/status`, {
+                method: 'GET',
+                mode: 'cors',
+                cache: 'no-cache'
+            });
+            const text = await response.text();
+            if (text.includes('ESP32 Desk Controller')) {
+                if (statusDiv) {
+                    statusDiv.textContent = 'Status: ✓ Connected';
+                    statusDiv.style.color = '#4ade80';
+                }
+                ESP32_IP = testIP;
+                localStorage.setItem('esp32_ip', ESP32_IP);
+                isConnected = true;
+                // Update main status
+                document.getElementById('status').innerText = 'Connected';
+                document.getElementById('status').style.color = '#4ade80';
+                return true;
+            } else {
+                throw new Error('Invalid response');
+            }
+        } catch (error) {
+            if (statusDiv) {
+                statusDiv.textContent = 'Status: ✗ Disconnected';
+                statusDiv.style.color = '#f87171';
+            }
+            isConnected = false;
+            // Update main status
+            document.getElementById('status').innerText = 'Disconnected';
+            document.getElementById('status').style.color = '#f87171';
+            return false;
+        }
+    }
+
+    // Save ESP32 IP address
+    function saveESP32IP() {
+        const ipInput = document.getElementById('esp32-ip-input');
+        const newIP = ipInput.value.trim();
+        if (newIP) {
+            ESP32_IP = newIP;
+            localStorage.setItem('esp32_ip', ESP32_IP);
+            testConnection();
+            alert('IP address saved!');
+        } else {
+            alert('Please enter a valid IP address');
+        }
+    }
+
+    // Reset ESP32 WiFi (clears credentials and restarts in AP mode)
+    async function resetESP32WiFi() {
+        if (!confirm('This will reset the ESP32 WiFi settings and restart it in setup mode. Continue?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${ESP32_IP}/resetwifi`, {
+                method: 'GET',
+                mode: 'cors',
+                cache: 'no-cache'
+            });
+            const text = await response.text();
+            alert('WiFi reset! ESP32 will restart in setup mode. Connect to "DeskController-Setup" network.');
+            // Update IP to AP mode
+            ESP32_IP = 'http://192.168.4.1';
+            localStorage.setItem('esp32_ip', ESP32_IP);
+            document.getElementById('esp32-ip-input').value = ESP32_IP;
+        } catch (error) {
+            alert('Error resetting WiFi. Make sure ESP32 is connected.');
+        }
+    }
+
+    // Update connection status display
+    function updateConnectionStatus() {
+        const statusDiv = document.getElementById('connection-status');
+        if (isConnected) {
+            statusDiv.textContent = 'Status: ✓ Connected';
+            statusDiv.style.color = '#4ade80';
+        } else {
+            statusDiv.textContent = 'Status: ✗ Disconnected';
+            statusDiv.style.color = '#f87171';
+        }
+    }
+
     function toggleModal(show) {
         document.getElementById('settings-modal').classList.toggle('active', show);
         if(show) {
+            loadESP32IP();
             renderPresetManager();
             loadLimits();
             updateManualLimits();
@@ -484,16 +610,98 @@ HTML_TEMPLATE = """
                     document.getElementById('height').innerText = match[1] + ' mm';
                     document.getElementById('status').innerText = 'Connected';
                     document.getElementById('status').style.color = '#4ade80';
+                    isConnected = true;
+                    
+                    // Hide setup page if shown
+                    const setupPage = document.getElementById('setup-page');
+                    if (setupPage) {
+                        setupPage.style.display = 'none';
+                    }
+                    const mainApp = document.querySelector('.app-window');
+                    if (mainApp) {
+                        mainApp.style.display = 'block';
+                    }
+                } else {
+                    throw new Error('Invalid response');
                 }
             }).catch(() => {
                 document.getElementById('status').innerText = 'Disconnected';
                 document.getElementById('status').style.color = '#f87171';
+                isConnected = false;
+                
+                // Show setup page if not connected
+                showSetupPage();
             });
     }
 
-    setInterval(updateHeight, 2000);
+    // Show setup page when not connected
+    function showSetupPage() {
+        let setupPage = document.getElementById('setup-page');
+        if (!setupPage) {
+            setupPage = document.createElement('div');
+            setupPage.id = 'setup-page';
+            setupPage.style.cssText = 'width:380px; background-color:var(--bg-color); border-radius:24px; box-shadow:0 20px 50px rgba(0,0,0,0.5); padding:25px; color:white;';
+            setupPage.innerHTML = `
+                <div style="text-align:center; margin-bottom:25px;">
+                    <h2 style="color:var(--accent-blue); margin:0 0 10px 0;">Desk Controller Setup</h2>
+                    <p style="color:var(--text-dim); font-size:14px;">ESP32 is not connected</p>
+                </div>
+                <div class="card" style="background:var(--card-bg); border-radius:16px; padding:18px; margin-bottom:15px;">
+                    <span class="section-title">First Time Setup</span>
+                    <ol style="text-align:left; font-size:13px; color:var(--text-dim); line-height:1.8; padding-left:20px;">
+                        <li>Connect your phone/computer to WiFi network: <strong style="color:white;">DeskController-Setup</strong></li>
+                        <li>Password: <strong style="color:white;">setup12345</strong></li>
+                        <li>Open: <a href="http://192.168.4.1/setup" target="_blank" style="color:var(--accent-blue);">http://192.168.4.1/setup</a></li>
+                        <li>Enter your WiFi credentials and connect</li>
+                        <li>Return here and enter the ESP32 IP address below</li>
+                    </ol>
+                </div>
+                <div class="card" style="background:var(--card-bg); border-radius:16px; padding:18px; margin-bottom:15px;">
+                    <span class="section-title">ESP32 IP Address</span>
+                    <input type="text" id="setup-ip-input" placeholder="http://192.168.1.100" style="background:#111; border:1px solid #444; color:white; padding:10px; border-radius:6px; width:100%; box-sizing:border-box; margin-bottom:10px;">
+                    <button onclick="connectToESP32()" style="width:100%; background:var(--accent-blue); color:white; padding:12px; border-radius:6px; border:none; font-weight:bold; cursor:pointer;">Connect</button>
+                </div>
+            `;
+            document.body.appendChild(setupPage);
+        }
+        setupPage.style.display = 'block';
+        const mainApp = document.querySelector('.app-window');
+        if (mainApp) {
+            mainApp.style.display = 'none';
+        }
+    }
+
+    // Connect to ESP32 from setup page
+    async function connectToESP32() {
+        const ipInput = document.getElementById('setup-ip-input');
+        const newIP = ipInput.value.trim() || 'http://192.168.4.1';
+        
+        ESP32_IP = newIP;
+        localStorage.setItem('esp32_ip', ESP32_IP);
+        
+        // Test connection
+        const connected = await testConnection();
+        if (connected) {
+            const setupPage = document.getElementById('setup-page');
+            if (setupPage) {
+                setupPage.style.display = 'none';
+            }
+            const mainApp = document.querySelector('.app-window');
+            if (mainApp) {
+                mainApp.style.display = 'block';
+            }
+            updateHeight();
+        } else {
+            alert('Could not connect to ESP32. Please check the IP address and try again.');
+        }
+    }
+
+    // Initialize on page load
+    loadESP32IP();
     renderMainPresets();
+    // Initial connection check - don't show setup page immediately
     updateHeight();
+    setInterval(updateHeight, 2000);
 </script>
 </body>
 </html>
@@ -501,7 +709,7 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, esp32_ip=ESP32_IP)
+    return render_template_string(HTML_TEMPLATE, esp32_ip=ESP32_IP_DEFAULT)
 
 if __name__ == '__main__':
     print(f"Starting Desk Controller Web App (New Compact Design)...")
