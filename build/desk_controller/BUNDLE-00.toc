@@ -1,0 +1,4 @@
+([('Desk Controller',
+   '/Users/prismo/Documents/Cursor Projects/Desk Controller/dist/Desk '
+   'Controller',
+   'EXECUTABLE')],)

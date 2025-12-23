@@ -38,15 +38,17 @@ pip3 install -r requirements.txt  # Install dependencies (first time only)
 ```
 Then double-click `Desk Controller.app` to launch. Opens in a native window (not a browser).
 
-**Option A2: DMG Installer (For Distribution)**
+**Option A2: Standalone DMG (For Distribution - No Dependencies Required!)**
 ```bash
-./build_mac_app.sh   # Build the app first
-./build_dmg.sh        # Create DMG installer
+./build_standalone_app.sh  # Build self-contained app (includes all dependencies)
+./build_dmg.sh             # Create DMG installer
 ```
-This creates `Desk_Controller.dmg` - a distributable installer that users can:
-1. Double-click to mount
+This creates `Desk_Controller.dmg` - a **standalone installer** that users can:
+1. Download and double-click to mount
 2. Drag the app to Applications folder
-3. Launch from Applications
+3. Launch immediately - **no Python or package installation needed!**
+
+The standalone app includes Python and all dependencies, so end users don't need to install anything.
 
 **Option B: Command Line**
 ```bash

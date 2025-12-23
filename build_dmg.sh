@@ -17,8 +17,20 @@ echo ""
 # Check if app exists
 if [ ! -d "$APP_BUNDLE" ]; then
     echo "✗ App bundle not found: $APP_BUNDLE"
-    echo "  Please run ./build_mac_app.sh first"
-    exit 1
+    echo ""
+    echo "Building standalone app first..."
+    if [ -f "$SCRIPT_DIR/build_standalone_app.sh" ]; then
+        "$SCRIPT_DIR/build_standalone_app.sh"
+    else
+        echo "  Please run ./build_standalone_app.sh first"
+        exit 1
+    fi
+    
+    # Check again after build
+    if [ ! -d "$APP_BUNDLE" ]; then
+        echo "✗ App bundle still not found after build"
+        exit 1
+    fi
 fi
 
 # Remove existing DMG if it exists
