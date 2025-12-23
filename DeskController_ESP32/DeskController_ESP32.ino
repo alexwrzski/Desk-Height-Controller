@@ -19,6 +19,15 @@ int maxHeight = 1185; // Maximum desk height in mm (configurable)
 int currentHeight = 0;
 bool sensor_available = false;  // Track if sensor is working
 bool server_started = false;  // Track if server has been started
+volatile bool stopMovement = false;  // Flag to stop movement when stop command is received
+int targetHeight = -1;  // Target height for movement (-1 means no active movement)
+unsigned long lastMovementCheck = 0;  // Last time we checked movement status
+unsigned long movementStartTime = 0;  // When movement started (for timeout)
+int consecutiveValidReadings = 0;  // Count consecutive readings within target tolerance
+int lastValidHeight = 0;  // Last valid height reading (for filtering)
+int lastMovementHeight = 0;  // Height when last movement check occurred (for detecting stalled movement)
+unsigned long lastHeightChangeTime = 0;  // When height last changed significantly
+int stableHeightCount = 0;  // Count of times height has been stable
 
 void setup() {
   Serial.begin(115200);
@@ -142,12 +151,184 @@ void loop() {
   }
   
   // Update current height periodically (only if sensor is available)
+  // Sensor is mounted on bottom of desktop, so it measures distance from desktop bottom to floor
+  // This distance IS the desk height, so use reading directly
   if (sensor_available) {
     VL53L0X_RangingMeasurementData_t measure;
     lox.rangingTest(&measure, false);
     if (measure.RangeStatus != 4) {
       currentHeight = measure.RangeMilliMeter;
+      // Clamp to reasonable bounds to prevent invalid readings
+      if (currentHeight < 0) currentHeight = 0;
+      if (currentHeight > 2000) currentHeight = 2000;
+      
+      // Safety check for manual up/down movements (when no targetHeight is set)
+      // Automatically stop if limits are reached during manual movement
+      if (targetHeight < 0) {  // Only check for manual movements (no preset/target active)
+        static unsigned long lastManualCheck = 0;
+        if (millis() - lastManualCheck >= 100) {  // Check every 100ms
+          lastManualCheck = millis();
+          
+          // Check if desk is moving up and hit max limit
+          if (digitalRead(UP_PIN) == LOW && currentHeight >= maxHeight - 10) {
+            // Relay is ON (moving up) and hit maximum limit
+            moveDesk("stop");
+            Serial.println("AUTO-STOP: Manual up movement reached maximum height limit");
+          }
+          // Check if desk is moving down and hit min limit
+          else if (digitalRead(DOWN_PIN) == LOW && currentHeight <= minHeight + 10) {
+            // Relay is ON (moving down) and hit minimum limit
+            moveDesk("stop");
+            Serial.println("AUTO-STOP: Manual down movement reached minimum height limit");
+          }
+        }
+      }
     }
+  }
+  
+  // Handle ongoing movement (non-blocking, state-driven)
+  if (targetHeight >= 0 && !stopMovement && sensor_available) {
+    // Check for timeout (30 seconds safety limit)
+    if (movementStartTime > 0 && millis() - movementStartTime > 30000) {
+      moveDesk("stop");
+      targetHeight = -1;
+      movementStartTime = 0;
+      consecutiveValidReadings = 0;
+      stableHeightCount = 0;
+    } else if (millis() - lastMovementCheck >= 100) {  // Check every 100ms
+      lastMovementCheck = millis();
+      
+      // Use current height reading directly (sensor is mounted on desk bottom, readings should be accurate)
+      int filteredHeight = currentHeight;
+      // Update last valid height for comparison (but don't filter - trust sensor readings)
+      lastValidHeight = currentHeight;
+      
+      // Safety check: Stop immediately if we've exceeded limits (with buffer to prevent overshoot)
+      if (filteredHeight <= minHeight + 10) {
+        // At or below minimum + buffer - emergency stop (prevents overshoot going down)
+        Serial.println("EMERGENCY STOP: Below minimum height limit!");
+        moveDesk("stop");
+        targetHeight = -1;
+        movementStartTime = 0;
+        consecutiveValidReadings = 0;
+        stableHeightCount = 0;
+        lastMovementHeight = filteredHeight;
+      } else if (filteredHeight >= maxHeight - 10) {
+        // At or above maximum - buffer - emergency stop (prevents overshoot going up)
+        Serial.println("EMERGENCY STOP: Above maximum height limit!");
+        moveDesk("stop");
+        targetHeight = -1;
+        movementStartTime = 0;
+        consecutiveValidReadings = 0;
+        stableHeightCount = 0;
+        lastMovementHeight = filteredHeight;
+      } else {
+        // Detect if height has stopped changing (desk hit physical limit)
+        // Check if height changed by more than 5mm (larger threshold to account for sensor noise)
+        if (abs(filteredHeight - lastMovementHeight) <= 5) {
+          // Height hasn't changed significantly (within 5mm)
+          stableHeightCount++;
+          Serial.print("Height stable: ");
+          Serial.print(filteredHeight);
+          Serial.print("mm, count: ");
+          Serial.println(stableHeightCount);
+          
+          if (stableHeightCount >= 8) {  // Height stable for 0.8 seconds (8 * 100ms)
+            // Desk appears to have hit a physical limit, stop movement
+            Serial.println("STOPPED: Height stable (desk hit physical limit)");
+            moveDesk("stop");
+            targetHeight = -1;
+            movementStartTime = 0;
+            consecutiveValidReadings = 0;
+            stableHeightCount = 0;
+            lastMovementHeight = filteredHeight;
+          } else {
+            // Still waiting for confirmation, but continue checking movement direction
+            // Don't reset stableHeightCount here - let it accumulate
+          }
+        } else {
+          // Height is changing, reset stable counter
+          if (stableHeightCount > 0) {
+            Serial.print("Height changing: ");
+            Serial.print(lastMovementHeight);
+            Serial.print(" -> ");
+            Serial.println(filteredHeight);
+          }
+          stableHeightCount = 0;
+          lastMovementHeight = filteredHeight;
+          lastHeightChangeTime = millis();
+        }
+        int difference = abs(filteredHeight - targetHeight);
+        
+        // Only proceed with movement logic if height is not stable (still moving)
+        if (stableHeightCount < 8) {
+          // Require 3 consecutive readings within tolerance to actually stop
+          // This prevents premature stopping due to sensor noise
+          if (difference <= 15) {
+            consecutiveValidReadings++;
+            Serial.print("Close to target: ");
+            Serial.print(filteredHeight);
+            Serial.print("mm, target: ");
+            Serial.print(targetHeight);
+            Serial.print("mm, readings: ");
+            Serial.println(consecutiveValidReadings);
+            
+            if (consecutiveValidReadings >= 3) {
+              // Reached target - confirmed by multiple readings
+              Serial.println("STOPPED: Reached target height");
+              moveDesk("stop");
+              targetHeight = -1;
+              movementStartTime = 0;
+              consecutiveValidReadings = 0;
+              stableHeightCount = 0;
+              lastMovementHeight = filteredHeight;
+            } else {
+              // Keep moving but we're getting close - respect limits
+              if (filteredHeight < targetHeight - 5 && filteredHeight < maxHeight - 20) {
+                moveDesk("up");
+              } else if (filteredHeight > targetHeight + 5 && filteredHeight > minHeight + 20) {
+                moveDesk("down");
+              } else {
+                // At limit or very close to target, stop
+                Serial.println("STOPPED: At limit or very close to target");
+                moveDesk("stop");
+                targetHeight = -1;
+                movementStartTime = 0;
+                consecutiveValidReadings = 0;
+                stableHeightCount = 0;
+                lastMovementHeight = filteredHeight;
+              }
+            }
+          } else {
+            // Not at target yet, reset counter and continue moving - but respect limits
+            consecutiveValidReadings = 0;
+            if (filteredHeight < targetHeight - 15 && filteredHeight < maxHeight - 20) {
+              moveDesk("up");
+            } else if (filteredHeight > targetHeight + 15 && filteredHeight > minHeight + 20) {
+              moveDesk("down");
+            } else {
+              // At limit, stop
+              Serial.println("STOPPED: Would exceed limits");
+              moveDesk("stop");
+              targetHeight = -1;
+              movementStartTime = 0;
+              consecutiveValidReadings = 0;
+              stableHeightCount = 0;
+              lastMovementHeight = filteredHeight;
+            }
+          }
+        }
+        // If stableHeightCount >= 8, we've already stopped in the stability check above
+      }
+    }
+  } else if (stopMovement && targetHeight >= 0) {
+    // Stop was requested during movement
+    moveDesk("stop");
+    targetHeight = -1;
+    movementStartTime = 0;
+    consecutiveValidReadings = 0;
+    stableHeightCount = 0;
+    stopMovement = false;
   }
   
   WiFiClient client = server.available();
@@ -229,27 +410,58 @@ void loop() {
 
     // Command: Move desk up
     if (command == "up") {
-      moveDesk("up");
-      client.println("Moving up");
+      // Check safety limits before moving up
+      if (currentHeight >= maxHeight - 10) {
+        moveDesk("stop");
+        client.println("Cannot move up: At maximum height limit (" + String(maxHeight) + " mm)");
+        client.println("Current height: " + String(currentHeight) + " mm");
+      } else {
+        moveDesk("up");
+        client.println("Moving up");
+        client.println("Current height: " + String(currentHeight) + " mm, Max: " + String(maxHeight) + " mm");
+      }
 
     // Command: Move desk down
     } else if (command == "down") {
-      moveDesk("down");
-      client.println("Moving down");
+      // Check safety limits before moving down
+      if (currentHeight <= minHeight + 10) {
+        moveDesk("stop");
+        client.println("Cannot move down: At minimum height limit (" + String(minHeight) + " mm)");
+        client.println("Current height: " + String(currentHeight) + " mm");
+      } else {
+        moveDesk("down");
+        client.println("Moving down");
+        client.println("Current height: " + String(currentHeight) + " mm, Min: " + String(minHeight) + " mm");
+      }
 
     // Command: Stop the desk
     } else if (command == "stop") {
+      stopMovement = true;  // Set flag to stop any ongoing movement
+      targetHeight = -1;  // Cancel any target movement
+      movementStartTime = 0;  // Reset movement start time
       moveDesk("stop");
+      stopMovement = false;  // Reset flag after stopping
       client.println("Stopped");
 
     // Command: Move desk to a preset height
     } else if (command.startsWith("goto")) {
       int preset = command.substring(4).toInt();
       if (preset >= 0 && preset < 3) {
-        client.println("Moving to preset " + String(preset) + ": " + String(presetHeights[preset]) + " mm");
-        client.flush(); // Send response immediately before starting movement
-        moveToHeight(presetHeights[preset], client);
-        client.println("Reached preset " + String(preset) + ": " + String(presetHeights[preset]) + " mm");
+        if (!sensor_available) {
+          client.println("ERROR: Height sensor not available. Cannot move to preset.");
+        } else {
+          stopMovement = false;  // Reset stop flag before starting movement
+          targetHeight = presetHeights[preset];  // Set target for non-blocking movement
+          movementStartTime = millis();  // Record when movement started
+          lastMovementCheck = 0;  // Reset check timer
+          consecutiveValidReadings = 0;  // Reset consecutive readings counter
+          stableHeightCount = 0;  // Reset stable height counter
+          lastValidHeight = currentHeight;  // Initialize filtered height
+          lastMovementHeight = currentHeight;  // Initialize movement tracking
+          client.println("Moving to preset " + String(preset) + ": " + String(presetHeights[preset]) + " mm");
+          client.println("Current: " + String(currentHeight) + " mm, Target: " + String(targetHeight) + " mm");
+          client.println("Use /stop to cancel movement");
+        }
       } else {
         client.println("Invalid preset number");
       }
@@ -300,14 +512,25 @@ void loop() {
 
     // Command: Move desk to a specific height manually
     } else if (command.startsWith("height")) {
-      int targetHeight = command.substring(6).toInt();
-      if (targetHeight >= minHeight && targetHeight <= maxHeight) {
-        client.println("Moving to height: " + String(targetHeight) + " mm");
-        client.flush(); // Send response immediately before starting movement
-        moveToHeight(targetHeight, client);
-        client.println("Reached height: " + String(targetHeight) + " mm");
+      int height = command.substring(6).toInt();
+      if (height >= minHeight && height <= maxHeight) {
+        if (!sensor_available) {
+          client.println("ERROR: Height sensor not available. Cannot move to specific height.");
+        } else {
+          stopMovement = false;  // Reset stop flag before starting movement
+          targetHeight = height;  // Set target for non-blocking movement
+          movementStartTime = millis();  // Record when movement started
+          lastMovementCheck = 0;  // Reset check timer
+          consecutiveValidReadings = 0;  // Reset consecutive readings counter
+          stableHeightCount = 0;  // Reset stable height counter
+          lastValidHeight = currentHeight;  // Initialize filtered height
+          lastMovementHeight = currentHeight;  // Initialize movement tracking
+          client.println("Moving to height: " + String(height) + " mm");
+          client.println("Current: " + String(currentHeight) + " mm, Target: " + String(targetHeight) + " mm");
+          client.println("Use /stop to cancel movement");
+        }
       } else {
-        client.println("Invalid height: " + String(targetHeight) + " mm");
+        client.println("Invalid height: " + String(height) + " mm");
         client.println("Height must be between " + String(minHeight) + " and " + String(maxHeight) + " mm");
       }
 
@@ -322,7 +545,6 @@ void loop() {
       client.println("Server: " + String(server_started ? "Running" : "Not Started"));
       client.println("Sensor: " + String(sensor_available ? "Available" : "Not Available"));
       client.println("Current Height: " + String(currentHeight) + " mm");
-      client.println("Height Limits: " + String(minHeight) + " - " + String(maxHeight) + " mm");
       client.println("Height Limits: " + String(minHeight) + " - " + String(maxHeight) + " mm");
 
     } else {
@@ -350,41 +572,5 @@ void moveDesk(String command) {
   }
 }
 
-void moveToHeight(int targetHeight, WiFiClient &client) {
-  if (!sensor_available) {
-    client.println("ERROR: Height sensor not available. Cannot move to specific height.");
-    return;
-  }
-  
-  unsigned long startTime = millis();
-  unsigned long timeout = 30000; // 30 second timeout for safety
-  
-  while (millis() - startTime < timeout) {
-    // Read current height
-    VL53L0X_RangingMeasurementData_t measure;
-    lox.rangingTest(&measure, false);
-    if (measure.RangeStatus != 4) {
-      currentHeight = measure.RangeMilliMeter;
-    }
-    
-    // Check if we're within tolerance (10mm)
-    int difference = abs(currentHeight - targetHeight);
-    if (difference <= 10) {
-      moveDesk("stop");
-      break;
-    }
-    
-    // Move in the correct direction
-    if (currentHeight < targetHeight - 10) {
-      moveDesk("up");
-    } else if (currentHeight > targetHeight + 10) {
-      moveDesk("down");
-    }
-    
-    delay(100);
-  }
-  
-  // Always stop at the end
-  moveDesk("stop");
-}
+// Note: moveToHeight function removed - movement is now handled non-blockingly in the main loop
 
