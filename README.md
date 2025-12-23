@@ -2,8 +2,14 @@
 
 A smart WiFi-enabled controller for IKEA electric standing desks that adds precise height control, preset positions, and a beautiful native macOS app.
 
+## Screenshots
+
 <div align="center">
-  <img src="screenshot.png" alt="Desk Controller macOS App" width="300">
+  <h3>Main App Interface</h3>
+  <img src="screenshots/screenshot.png" alt="Desk Controller Main Interface" width="300">
+  
+  <h3>Settings View</h3>
+  <img src="screenshots/Screenshot 2025-12-22 at 22.09.32.png" alt="Desk Controller Settings" width="300">
 </div>
 
 ## Features
