@@ -13,6 +13,10 @@
 		AA000026 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000027 /* AppState.swift */; };
 		AA000028 /* ESP32Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000029 /* ESP32Client.swift */; };
 		AA000030 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000031 /* SettingsView.swift */; };
+		AA000032 /* DesignConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000033 /* DesignConstants.swift */; };
+		AA000034 /* StyledTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000035 /* StyledTextField.swift */; };
+		AA000036 /* HoldableButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000037 /* HoldableButton.swift */; };
+		AA000038 /* Color+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000039 /* Color+Extensions.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +28,10 @@
 		AA000027 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		AA000029 /* ESP32Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32Client.swift; sourceTree = "<group>"; };
 		AA000031 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA000033 /* DesignConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignConstants.swift; sourceTree = "<group>"; };
+		AA000035 /* StyledTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyledTextField.swift; sourceTree = "<group>"; };
+		AA000037 /* HoldableButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldableButton.swift; sourceTree = "<group>"; };
+		AA000039 /* Color+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Extensions.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,10 +61,30 @@
 				AA000027 /* AppState.swift */,
 				AA000029 /* ESP32Client.swift */,
 				AA000031 /* SettingsView.swift */,
+				AA000033 /* DesignConstants.swift */,
+				AA000040 /* Components */,
+				AA000041 /* Extensions */,
 				AA000006 /* Assets.xcassets */,
 				AA000011 /* Info.plist */,
 			);
 			path = DeskController;
+			sourceTree = "<group>";
+		};
+		AA000040 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				AA000035 /* StyledTextField.swift */,
+				AA000037 /* HoldableButton.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		AA000041 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				AA000039 /* Color+Extensions.swift */,
+			);
+			path = Extensions;
 			sourceTree = "<group>";
 		};
 		AA000015 /* Products */ = {
@@ -136,6 +164,10 @@
 				AA000026 /* AppState.swift in Sources */,
 				AA000028 /* ESP32Client.swift in Sources */,
 				AA000030 /* SettingsView.swift in Sources */,
+				AA000032 /* DesignConstants.swift in Sources */,
+				AA000034 /* StyledTextField.swift in Sources */,
+				AA000036 /* HoldableButton.swift in Sources */,
+				AA000038 /* Color+Extensions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

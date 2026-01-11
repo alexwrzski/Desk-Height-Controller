@@ -110,9 +110,7 @@ class AppState: ObservableObject {
     func startPolling() {
         // Stop any existing timers first
         stopPolling()
-        
-        print("🚀 startPolling() called, ESP32 IP: \(client.baseURL)")
-        
+
         // Update immediately - this will check connection and update status
         updateHeight()
         
@@ -151,15 +149,12 @@ class AppState: ObservableObject {
         stableHeightCount = 0
         heightChangeDetected = false
         lastMovementTime = Date()
-        
-        print("🚀 startMovementPolling() - isMoving set to true")
-        
+
         // Poll frequently while moving (every 0.5 seconds)
         pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             // Ensure isMoving stays true while polling
             if !self.isMoving {
-                print("⚠️ isMoving was false during movement polling - resetting to true")
                 self.isMoving = true
             }
             self.updateHeight()
@@ -206,9 +201,11 @@ class AppState: ObservableObject {
         if !baseURL.hasPrefix("http://") && !baseURL.hasPrefix("https://") {
             baseURL = "http://" + baseURL
         }
-        
+
+        NSLog("🔍 updateHeight() - Attempting to connect to: \(baseURL)/status")
+
         guard let url = URL(string: "\(baseURL)/status") else {
-            print("❌ Invalid URL: \(baseURL)/status")
+            NSLog("❌ Invalid URL: \(baseURL)/status")
             DispatchQueue.main.async { [weak self] in
                 self?.isConnected = false
                 self?.statusMessage = "Disconnected"
@@ -217,26 +214,32 @@ class AppState: ObservableObject {
             }
             return
         }
+
+        NSLog("✅ Valid URL created: \(url.absoluteString)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 5.0  // Increased timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        
-        print("🔍 Making request to: \(url.absoluteString)")
-        
+
         // Use async/await for more reliable network handling
         Task {
             do {
-                print("🌐 Starting network request...")
+                NSLog("🌐 Making network request...")
                 let (data, response) = try await URLSession.shared.data(for: request)
-                print("📦 Received response, processing...")
+                NSLog("📦 Received response: \(response)")
+                if let httpResponse = response as? HTTPURLResponse {
+                    NSLog("📊 Status code: \(httpResponse.statusCode)")
+                }
+                if let text = String(data: data, encoding: .utf8) {
+                    NSLog("📄 Response text: \(String(text.prefix(200)))")
+                }
                 // Ensure we process on main thread for UI updates
                 await MainActor.run {
                     self.handleResponse(data: data, response: response, error: nil)
                 }
             } catch {
-                print("💥 Network request failed: \(error.localizedDescription)")
+                NSLog("💥 Network error: \(error.localizedDescription)")
                 // Ensure we process on main thread for UI updates
                 await MainActor.run {
                     self.handleResponse(data: nil, response: nil, error: error)
@@ -245,64 +248,67 @@ class AppState: ObservableObject {
         }
     }
     
+    // MARK: - Helper Methods
+
+    /// Check if height has changed significantly (more than 5mm threshold)
+    private func didHeightChange(newHeight: Int) -> Bool {
+        guard let lastHeight = lastHeightValue else {
+            return true // First reading
+        }
+        return abs(newHeight - lastHeight) > 5 // 5mm threshold to account for sensor noise
+    }
+
+    /// Update height value and notify UI
+    private func updateHeightValue(_ height: Int) {
+        objectWillChange.send()
+        currentHeight = height
+        lastHeightValue = height
+    }
+
     @MainActor
     private func handleResponse(data: Data?, response: URLResponse?, error: Error?) {
         // This function is now guaranteed to run on MainActor/main thread
         if let error = error {
-                    print("❌ Request error: \(error.localizedDescription)")
-                    print("   Error domain: \((error as NSError).domain)")
-                    print("   Error code: \((error as NSError).code)")
                     self.isConnected = false
                     self.statusMessage = "Disconnected"
                     self.statusColor = "#f87171"
                     self.currentHeight = nil
                     return
                 }
-                
+
                 guard let httpResponse = response as? HTTPURLResponse else {
-                    print("❌ Invalid response type")
                     self.isConnected = false
                     self.statusMessage = "Disconnected"
                     self.statusColor = "#f87171"
                     return
                 }
-                
-                print("✅ Got HTTP response: \(httpResponse.statusCode)")
-                
+
                 // Check if HTTP status is successful (200-299)
                 guard (200...299).contains(httpResponse.statusCode) else {
-                    print("❌ HTTP status code not successful: \(httpResponse.statusCode)")
                     self.isConnected = false
                     self.statusMessage = "Disconnected"
                     self.statusColor = "#f87171"
                     self.currentHeight = nil // Clear height on error
                     return
                 }
-                
+
+
                 guard let data = data,
                       let text = String(data: data, encoding: .utf8) else {
-                    print("❌ Could not decode response")
                     self.isConnected = false
                     self.statusMessage = "Disconnected"
                     self.statusColor = "#f87171"
                     self.currentHeight = nil // Clear height on error
                     return
                 }
-                
-                print("📄 Response text (first 500 chars):")
-                print(String(text.prefix(500)))
-                print("📏 Full length: \(text.count) characters")
-                
+
                 // Clean the text - remove HTML tags and normalize whitespace
                 var cleanText = text
                 // Remove HTML tags if present
                 cleanText = cleanText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
                 // Normalize whitespace
                 cleanText = cleanText.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-                
-                print("🧹 Cleaned text (first 500 chars):")
-                print(String(cleanText.prefix(500)))
-                
+
                 // Try multiple regex patterns to match the height with different options
                 // Try exact patterns first, then more flexible ones
                 let patternConfigs: [(pattern: String, options: NSRegularExpression.Options)] = [
@@ -323,116 +329,71 @@ class AppState: ObservableObject {
                         if let regex = try? NSRegularExpression(pattern: config.pattern, options: config.options) {
                             let nsString = searchText as NSString
                             let results = regex.matches(in: searchText, options: [], range: NSRange(location: 0, length: nsString.length))
-                            
-                            print("🔎 Pattern '\(config.pattern)' (options: \(config.options)) found \(results.count) matches")
-                            
+
                             if let match = results.first, match.numberOfRanges > 1 {
                                 let range = match.range(at: 1)
                                 let heightString = nsString.substring(with: range)
-                                print("📊 Extracted height string: '\(heightString)'")
                                 if let height = Int(heightString) {
-                                    print("✅ SUCCESS! Setting height to \(height)mm")
                                     // We're on main thread (@MainActor)
                                     
                                     // If isMoving is true (set by button press), ALWAYS update height (live view)
                                     if self.isMoving {
-                                        // Check if height is actually changing (use larger threshold to account for sensor noise)
-                                        let heightChanged: Bool
-                                        if let lastHeight = self.lastHeightValue {
-                                            heightChanged = abs(height - lastHeight) > 5 // Changed by more than 5mm (reduced sensitivity)
-                                        } else {
-                                            heightChanged = true // First reading
-                                        }
-                                        
-                                        if heightChanged {
+                                        if self.didHeightChange(newHeight: height) {
                                             // Height is changing - desk is moving, reset stability counter
                                             self.stableHeightCount = 0
-                                            print("📊 Height changing - updated to \(height)mm (live view)")
-                                            // Update height when it's actually changing
-                                            self.objectWillChange.send() // Explicitly trigger UI update
-                                            self.currentHeight = height
-                                            self.lastHeightValue = height
+                                            self.updateHeightValue(height)
                                         } else {
                                             // Height is stable - check if desk has stopped
                                             self.stableHeightCount += 1
                                             if self.stableHeightCount >= 2 {
                                                 // Height stable for 2 polls (1 second), desk has stopped - freeze immediately
-                                                print("🛑 Desk stopped - height stabilized at \(height)mm - freezing display")
                                                 self.isMoving = false
                                                 self.heightUpdatePaused = true
-                                                // Update height one final time to show the stable value, then freeze
-                                                self.objectWillChange.send()
-                                                self.currentHeight = height
-                                                self.lastHeightValue = height
+                                                self.updateHeightValue(height)
                                                 self.startIdlePolling() // Switch to idle polling
                                             } else {
                                                 // Still checking if stopped, keep updating but we're close
-                                                print("📊 Stabilizing (stable count: \(self.stableHeightCount)/2) - updated to \(height)mm")
-                                                self.objectWillChange.send()
-                                                self.currentHeight = height
-                                                self.lastHeightValue = height
+                                                self.updateHeightValue(height)
                                             }
                                         }
                                     } else {
                                         // Not moving - check if height is stable
-                                        let heightChanged: Bool
-                                        if let lastHeight = self.lastHeightValue {
-                                            heightChanged = abs(height - lastHeight) > 5 // Use larger threshold
-                                        } else {
-                                            heightChanged = true
-                                        }
-                                        
-                                        if heightChanged && !self.heightUpdatePaused {
+                                        if self.didHeightChange(newHeight: height) && !self.heightUpdatePaused {
                                             // Height changed significantly but we're not in moving state - update once
                                             self.stableHeightCount = 0
                                             self.heightUpdatePaused = false
-                                            self.objectWillChange.send()
-                                            self.currentHeight = height
-                                            self.lastHeightValue = height
-                                            print("📊 Height changed to \(height)mm (not moving)")
+                                            self.updateHeightValue(height)
                                         } else if !self.heightUpdatePaused {
                                             // Height is stable and not paused yet
                                             self.stableHeightCount += 1
                                             if self.stableHeightCount >= 2 {
                                                 // Height stable for 2 polls, pause updates immediately
                                                 self.heightUpdatePaused = true
-                                                // Update one final time then freeze
-                                                self.objectWillChange.send()
-                                                self.currentHeight = height
-                                                self.lastHeightValue = height
-                                                print("🛑 Height stable at \(height)mm - freezing display")
+                                                self.updateHeightValue(height)
                                             } else {
                                                 // Still checking, update while checking
-                                                self.objectWillChange.send()
-                                                self.currentHeight = height
-                                                self.lastHeightValue = height
+                                                self.updateHeightValue(height)
                                             }
                                         }
                                         // When paused, don't update at all (height is frozen)
                                     }
-                                    
+
+
                                     self.isConnected = true
                                     self.statusMessage = "Connected"
                                     self.statusColor = "#4ade80"
-                                    print("✅ UI updated - statusMessage: \(self.statusMessage), height: \(self.currentHeight ?? -1), isMoving: \(self.isMoving)")
                                     heightFound = true
                                     break
-                                } else {
-                                    print("❌ Could not convert '\(heightString)' to Int")
                                 }
                             }
                         }
                     }
                     if heightFound { break }
                 }
-                
+
+
                 // If we got here and didn't find height, parsing failed
                 if !heightFound {
-                    print("⚠️ Parsing failed - no height found in response")
-                    print("🔍 Full response text:")
-                    print(text)
-                    print("🔍 Cleaned response text:")
-                    print(cleanText)
                     // If we got a valid HTTP response but can't parse height,
                     // we're connected but can't read the height
                     // We're already on main thread (checked at start of handleResponse)
@@ -456,7 +417,6 @@ class AppState: ObservableObject {
         // This is called repeatedly while button is held (every 200ms)
         // Ensure isMoving stays true
         if !isMoving {
-            print("🔼 moveUp() called - starting movement polling")
             startMovementPolling()
         } else {
             // Already moving, just update the last movement time
@@ -472,7 +432,6 @@ class AppState: ObservableObject {
         // This is called repeatedly while button is held (every 200ms)
         // Ensure isMoving stays true
         if !isMoving {
-            print("🔽 moveDown() called - starting movement polling")
             startMovementPolling()
         } else {
             // Already moving, just update the last movement time

@@ -23,16 +23,16 @@ struct SettingsView: View {
     
     var body: some View {
         ZStack {
-            Color(hex: "1a1a1a")
+            DesignConstants.Colors.background
                 .ignoresSafeArea()
-            
+
             ScrollView {
                 VStack(spacing: 15) {
                     // Header
                     HStack {
                         Text("Settings")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(Color(hex: "888888"))
+                            .foregroundColor(DesignConstants.Colors.textMuted)
                         
                         Spacer()
                         
@@ -53,23 +53,12 @@ struct SettingsView: View {
                     // Manual Movement
                     SettingsCard(title: "MANUAL MOVEMENT") {
                         HStack(spacing: 8) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Target Height (mm)")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "888888"))
-                                
-                                TextField("Height (mm)", text: $manualHeight)
-                                    .textFieldStyle(PlainTextFieldStyle())
-                                    .padding(8)
-                                    .background(Color(hex: "111111"))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color(hex: "444444"), lineWidth: 1)
-                                    )
-                            }
-                            
+                            StyledTextField(
+                                label: "Target Height (mm)",
+                                placeholder: "Height (mm)",
+                                text: $manualHeight
+                            )
+
                             Button(action: {
                                 moveToHeight()
                             }) {
@@ -78,15 +67,15 @@ struct SettingsView: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 8)
-                                    .background(Color(hex: "3b82f6"))
-                                    .cornerRadius(6)
+                                    .background(DesignConstants.Colors.accentBlue)
+                                    .cornerRadius(DesignConstants.Styling.inputCornerRadius)
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
-                        
+
                         Text("Min: \(appState.minLimit)mm | Max: \(appState.maxLimit)mm")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(hex: "888888"))
+                            .font(.system(size: DesignConstants.Typography.labelSize))
+                            .foregroundColor(DesignConstants.Colors.textMuted)
                             .padding(.top, 8)
                     }
                     .padding(.horizontal, 25)
@@ -100,13 +89,13 @@ struct SettingsView: View {
                                     Text("⚠")
                                         .font(.system(size: 14))
                                     Text(warning)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(Color(hex: "f87171"))
+                                        .font(.system(size: DesignConstants.Typography.labelSize))
+                                        .foregroundColor(DesignConstants.Colors.errorRed)
                                     Spacer()
                                 }
                                 .padding(10)
-                                .background(Color(hex: "422222"))
-                                .cornerRadius(6)
+                                .background(DesignConstants.Colors.errorBackground)
+                                .cornerRadius(DesignConstants.Styling.inputCornerRadius)
                                 .padding(.bottom, 4)
                             }
                             
@@ -159,12 +148,12 @@ struct SettingsView: View {
                             }) {
                                 Text(appState.presets.count >= 9 ? "Maximum 9 Presets" : "+ Add Preset")
                                     .font(.system(size: 14))
-                                    .foregroundColor(appState.presets.count >= 9 ? Color(hex: "888888") : Color(hex: "3b82f6"))
+                                    .foregroundColor(appState.presets.count >= 9 ? DesignConstants.Colors.textMuted : DesignConstants.Colors.accentBlue)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color(hex: "555555"), style: StrokeStyle(lineWidth: 1, dash: [5]))
+                                        RoundedRectangle(cornerRadius: DesignConstants.Styling.inputCornerRadius)
+                                            .stroke(DesignConstants.Colors.borderDashed, style: StrokeStyle(lineWidth: DesignConstants.Styling.standardBorderWidth, dash: [5]))
                                     )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -177,52 +166,30 @@ struct SettingsView: View {
                     // Safety Limits
                     SettingsCard(title: "SAFETY LIMITS") {
                         HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Min (mm)")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "888888"))
-                                
-                                TextField("", text: $minLimitString)
-                                    .textFieldStyle(PlainTextFieldStyle())
-                                    .padding(8)
-                                    .background(Color(hex: "111111"))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color(hex: "444444"), lineWidth: 1)
-                                    )
-                                    .onChange(of: minLimitString) { newValue in
-                                        if let value = Int(newValue) {
-                                            appState.minLimit = value
-                                            // Re-validate when limits change
-                                            validatePresets()
-                                        }
-                                    }
+                            StyledNumberField(
+                                label: "Min (mm)",
+                                placeholder: "",
+                                value: $minLimitString
+                            )
+                            .onChange(of: minLimitString) { newValue in
+                                if let value = Int(newValue) {
+                                    appState.minLimit = value
+                                    // Re-validate when limits change
+                                    validatePresets()
+                                }
                             }
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Max (mm)")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "888888"))
-                                
-                                TextField("", text: $maxLimitString)
-                                    .textFieldStyle(PlainTextFieldStyle())
-                                    .padding(8)
-                                    .background(Color(hex: "111111"))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color(hex: "444444"), lineWidth: 1)
-                                    )
-                                    .onChange(of: maxLimitString) { newValue in
-                                        if let value = Int(newValue) {
-                                            appState.maxLimit = value
-                                            // Re-validate when limits change
-                                            validatePresets()
-                                        }
-                                    }
+
+                            StyledNumberField(
+                                label: "Max (mm)",
+                                placeholder: "",
+                                value: $maxLimitString
+                            )
+                            .onChange(of: maxLimitString) { newValue in
+                                if let value = Int(newValue) {
+                                    appState.maxLimit = value
+                                    // Re-validate when limits change
+                                    validatePresets()
+                                }
                             }
                         }
                     }
@@ -231,22 +198,11 @@ struct SettingsView: View {
                     // ESP32 Connection
                     SettingsCard(title: "ESP32 CONNECTION") {
                         VStack(alignment: .leading, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("ESP32 IP Address")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "888888"))
-                                
-                                TextField("http://192.168.1.100", text: $appState.esp32IP)
-                                    .textFieldStyle(PlainTextFieldStyle())
-                                    .padding(8)
-                                    .background(Color(hex: "111111"))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color(hex: "444444"), lineWidth: 1)
-                                    )
-                            }
+                            StyledTextField(
+                                label: "ESP32 IP Address",
+                                placeholder: "http://192.168.1.100",
+                                text: $appState.esp32IP
+                            )
                             
                             HStack(spacing: 8) {
                                 Button(action: {
@@ -257,12 +213,12 @@ struct SettingsView: View {
                                         .foregroundColor(.white)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 8)
-                                        .background(Color(hex: "333333"))
-                                        .cornerRadius(6)
+                                        .background(DesignConstants.Colors.buttonBackground)
+                                        .cornerRadius(DesignConstants.Styling.inputCornerRadius)
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .disabled(isTestingConnection)
-                                
+
                                 Button(action: {
                                     saveESP32IP()
                                 }) {
@@ -271,26 +227,26 @@ struct SettingsView: View {
                                         .foregroundColor(.white)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 8)
-                                        .background(Color(hex: "3b82f6"))
-                                        .cornerRadius(6)
+                                        .background(DesignConstants.Colors.accentBlue)
+                                        .cornerRadius(DesignConstants.Styling.inputCornerRadius)
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
-                            
+
                             Text("Status: \(connectionStatus)")
-                                .font(.system(size: 11))
+                                .font(.system(size: DesignConstants.Typography.labelSize))
                                 .foregroundColor(Color(hex: connectionStatusColor))
-                            
+
                             Button(action: {
                                 showResetWiFiConfirmation = true
                             }) {
                                 Text("Reset WiFi (Restart Setup Mode)")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(Color(hex: "f87171"))
+                                    .font(.system(size: DesignConstants.Typography.statusSize))
+                                    .foregroundColor(DesignConstants.Colors.errorRed)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 8)
-                                    .background(Color(hex: "422222"))
-                                    .cornerRadius(6)
+                                    .background(DesignConstants.Colors.errorBackground)
+                                    .cornerRadius(DesignConstants.Styling.inputCornerRadius)
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
@@ -306,8 +262,8 @@ struct SettingsView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(Color(hex: "3b82f6"))
-                            .cornerRadius(10)
+                            .background(DesignConstants.Colors.accentBlue)
+                            .cornerRadius(DesignConstants.Styling.buttonCornerRadius)
                     }
                     .buttonStyle(PlainButtonStyle())
                     .padding(.horizontal, 25)
@@ -446,16 +402,16 @@ struct SettingsCard<Content: View>: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: DesignConstants.Layout.sectionSpacing) {
             Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(Color(hex: "888888"))
+                .font(.system(size: DesignConstants.Typography.statusSize, weight: .bold))
+                .foregroundColor(DesignConstants.Colors.textMuted)
                 .textCase(.uppercase)
-            
+
             content
         }
-        .padding(18)
-        .background(Color(hex: "262626"))
+        .padding(DesignConstants.Layout.cardPadding)
+        .background(DesignConstants.Colors.cardBackground)
         .cornerRadius(16)
     }
 }
@@ -466,38 +422,38 @@ struct PresetRow: View {
     let onDelete: () -> Void
     
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DesignConstants.Layout.presetSpacing) {
             TextField("Name", text: $name)
                 .textFieldStyle(PlainTextFieldStyle())
                 .padding(8)
-                .background(Color(hex: "111111"))
+                .background(DesignConstants.Colors.inputBackground)
                 .foregroundColor(.white)
-                .cornerRadius(6)
+                .cornerRadius(DesignConstants.Styling.inputCornerRadius)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(hex: "444444"), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: DesignConstants.Styling.inputCornerRadius)
+                        .stroke(DesignConstants.Colors.border, lineWidth: DesignConstants.Styling.standardBorderWidth)
                 )
                 .frame(maxWidth: .infinity)
-            
+
             TextField("mm", text: $height)
                 .textFieldStyle(PlainTextFieldStyle())
                 .padding(8)
-                .background(Color(hex: "111111"))
+                .background(DesignConstants.Colors.inputBackground)
                 .foregroundColor(.white)
-                .cornerRadius(6)
+                .cornerRadius(DesignConstants.Styling.inputCornerRadius)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(hex: "444444"), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: DesignConstants.Styling.inputCornerRadius)
+                        .stroke(DesignConstants.Colors.border, lineWidth: DesignConstants.Styling.standardBorderWidth)
                 )
                 .frame(width: 80)
-            
+
             Button(action: onDelete) {
                 Text("×")
                     .font(.system(size: 18))
-                    .foregroundColor(Color(hex: "f87171"))
+                    .foregroundColor(DesignConstants.Colors.errorRed)
                     .frame(width: 30, height: 30)
-                    .background(Color(hex: "422222"))
-                    .cornerRadius(6)
+                    .background(DesignConstants.Colors.errorBackground)
+                    .cornerRadius(DesignConstants.Styling.inputCornerRadius)
             }
             .buttonStyle(PlainButtonStyle())
         }
